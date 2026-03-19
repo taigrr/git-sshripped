@@ -12,13 +12,19 @@ use clap::{Parser, Subcommand, ValueEnum};
 use git_ssh_crypt_cli_models::InitOptions;
 use git_ssh_crypt_encryption_models::EncryptionAlgorithm;
 use git_ssh_crypt_filter::{clean, diff, smudge};
-use git_ssh_crypt_recipient::{add_recipient_from_public_key, add_recipients_from_github_keys};
+use git_ssh_crypt_recipient::{
+    add_recipient_from_public_key, add_recipients_from_github_keys, list_recipients,
+    wrap_repo_key_for_all_recipients, wrap_repo_key_for_recipient, wrapped_store_dir,
+};
 use git_ssh_crypt_recipient_models::RecipientSource;
 use git_ssh_crypt_repository::{
-    install_git_filters, install_gitattributes, metadata_dir, read_manifest, write_manifest,
+    install_git_filters, install_gitattributes, read_manifest, write_manifest,
 };
 use git_ssh_crypt_repository_models::RepositoryManifest;
-use git_ssh_crypt_ssh_identity::detect_identity;
+use git_ssh_crypt_ssh_identity::{
+    default_private_key_candidates, default_public_key_candidates, detect_identity,
+    unwrap_repo_key_from_wrapped_files,
+};
 use git_ssh_crypt_worktree::{
     clear_unlock_session, git_common_dir, git_toplevel, read_unlock_session, write_unlock_session,
 };
@@ -52,13 +58,20 @@ enum Command {
         patterns: Vec<String>,
         #[arg(long, value_enum, default_value_t = CliAlgorithm::AesSiv)]
         algorithm: CliAlgorithm,
+        #[arg(long = "recipient-key")]
+        recipient_keys: Vec<String>,
+        #[arg(long = "github-keys-url")]
+        github_keys_urls: Vec<String>,
     },
     Unlock {
         #[arg(long)]
         key_hex: Option<String>,
+        #[arg(long = "identity")]
+        identities: Vec<String>,
     },
     Lock,
     Status,
+    Rewrap,
     AddUser {
         #[arg(long)]
         key: Option<String>,
@@ -87,10 +100,16 @@ fn main() -> Result<()> {
         Command::Init {
             patterns,
             algorithm,
-        } => cmd_init(patterns, algorithm),
-        Command::Unlock { key_hex } => cmd_unlock(key_hex),
+            recipient_keys,
+            github_keys_urls,
+        } => cmd_init(patterns, algorithm, recipient_keys, github_keys_urls),
+        Command::Unlock {
+            key_hex,
+            identities,
+        } => cmd_unlock(key_hex, identities),
         Command::Lock => cmd_lock(),
         Command::Status => cmd_status(),
+        Command::Rewrap => cmd_rewrap(),
         Command::AddUser {
             key,
             github_keys_url,
@@ -110,19 +129,35 @@ fn current_common_dir() -> Result<PathBuf> {
     git_common_dir(&std::env::current_dir().context("failed to read current dir")?)
 }
 
-fn local_repo_key_file(repo_root: &std::path::Path) -> PathBuf {
-    metadata_dir(repo_root).join("repo-key.hex")
+fn wrapped_key_files(repo_root: &std::path::Path) -> Result<Vec<PathBuf>> {
+    let dir = wrapped_store_dir(repo_root);
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut files = Vec::new();
+    for entry in fs::read_dir(&dir)
+        .with_context(|| format!("failed to read wrapped dir {}", dir.display()))?
+    {
+        let entry = entry.with_context(|| format!("failed reading entry in {}", dir.display()))?;
+        if entry
+            .file_type()
+            .with_context(|| format!("failed to read file type for {}", entry.path().display()))?
+            .is_file()
+        {
+            files.push(entry.path());
+        }
+    }
+    files.sort();
+    Ok(files)
 }
 
-fn read_local_repo_key(repo_root: &std::path::Path) -> Result<Vec<u8>> {
-    let file = local_repo_key_file(repo_root);
-    let key_hex = fs::read_to_string(&file)
-        .with_context(|| format!("failed to read local key file {}", file.display()))?;
-    let bytes = hex::decode(key_hex.trim()).context("invalid local repo key hex")?;
-    Ok(bytes)
-}
-
-fn cmd_init(patterns: Vec<String>, algorithm: CliAlgorithm) -> Result<()> {
+fn cmd_init(
+    patterns: Vec<String>,
+    algorithm: CliAlgorithm,
+    recipient_keys: Vec<String>,
+    github_keys_urls: Vec<String>,
+) -> Result<()> {
     let repo_root = current_repo_root()?;
 
     let init = InitOptions {
@@ -144,32 +179,91 @@ fn cmd_init(patterns: Vec<String>, algorithm: CliAlgorithm) -> Result<()> {
     install_gitattributes(&repo_root, &manifest.protected_patterns)?;
     install_git_filters(&repo_root)?;
 
-    // Temporary bootstrap key storage for local development. Recipient wrapping
-    // support is next and will replace this tracked-local fallback.
+    let mut added_recipients = Vec::new();
+
+    for key in recipient_keys {
+        let key_line = if key.ends_with(".pub") {
+            fs::read_to_string(&key)
+                .with_context(|| format!("failed to read recipient key file {key}"))?
+        } else {
+            key
+        };
+        let recipient =
+            add_recipient_from_public_key(&repo_root, &key_line, RecipientSource::LocalFile)?;
+        added_recipients.push(recipient);
+    }
+
+    for url in github_keys_urls {
+        let recipients = add_recipients_from_github_keys(&repo_root, &url)?;
+        added_recipients.extend(recipients);
+    }
+
+    for path in default_public_key_candidates() {
+        if !path.exists() {
+            continue;
+        }
+        let key_line = fs::read_to_string(&path)
+            .with_context(|| format!("failed to read default public key {}", path.display()))?;
+        let recipient =
+            add_recipient_from_public_key(&repo_root, &key_line, RecipientSource::LocalFile)?;
+        added_recipients.push(recipient);
+    }
+
+    let recipients = list_recipients(&repo_root)?;
+    if recipients.is_empty() {
+        anyhow::bail!(
+            "no recipients available; provide --recipient-key, --github-keys-url, or ensure ~/.ssh/id_ed25519.pub exists"
+        );
+    }
+
     let mut key = [0_u8; 32];
     rand::rng().fill_bytes(&mut key);
-    let key_file = local_repo_key_file(&repo_root);
-    fs::write(&key_file, hex::encode(key))
-        .with_context(|| format!("failed to write local key file {}", key_file.display()))?;
+    let wrapped = wrap_repo_key_for_all_recipients(&repo_root, &key)?;
 
     println!("initialized git-ssh-crypt in {}", repo_root.display());
     println!("algorithm: {:?}", manifest.encryption_algorithm);
     println!("patterns: {}", manifest.protected_patterns.join(", "));
+    println!("recipients: {}", recipients.len());
+    println!("wrapped keys written: {}", wrapped.len());
+    if added_recipients.is_empty() {
+        println!("note: reused existing recipient definitions");
+    }
     Ok(())
 }
 
-fn cmd_unlock(key_hex: Option<String>) -> Result<()> {
+fn cmd_unlock(key_hex: Option<String>, identities: Vec<String>) -> Result<()> {
     let repo_root = current_repo_root()?;
     let common_dir = current_common_dir()?;
 
-    let key = if let Some(hex_value) = key_hex {
-        hex::decode(hex_value.trim()).context("--key-hex must be valid hex")?
+    let (key, key_source) = if let Some(hex_value) = key_hex {
+        (
+            hex::decode(hex_value.trim()).context("--key-hex must be valid hex")?,
+            "key-hex".to_string(),
+        )
     } else {
-        read_local_repo_key(&repo_root)
-            .context("no key provided and local bootstrap key missing; provide --key-hex")?
+        let identity_files = if identities.is_empty() {
+            default_private_key_candidates()
+        } else {
+            identities.into_iter().map(PathBuf::from).collect()
+        };
+
+        let wrapped_files = wrapped_key_files(&repo_root)?;
+        if wrapped_files.is_empty() {
+            anyhow::bail!(
+                "no wrapped key files found in {}; run init or rewrap first",
+                wrapped_store_dir(&repo_root).display()
+            );
+        }
+
+        let Some((unwrapped, descriptor)) =
+            unwrap_repo_key_from_wrapped_files(&wrapped_files, &identity_files)?
+        else {
+            anyhow::bail!("could not decrypt any wrapped key with provided/default identities");
+        };
+        (unwrapped, descriptor.label)
     };
 
-    write_unlock_session(&common_dir, &key, "local")?;
+    write_unlock_session(&common_dir, &key, &key_source)?;
     println!(
         "unlocked repository across worktrees via {}",
         common_dir.display()
@@ -190,6 +284,8 @@ fn cmd_status() -> Result<()> {
     let manifest = read_manifest(&repo_root)?;
     let identity = detect_identity()?;
     let session = read_unlock_session(&common_dir)?;
+    let recipients = list_recipients(&repo_root)?;
+    let wrapped_files = wrapped_key_files(&repo_root)?;
 
     println!("repo: {}", repo_root.display());
     println!(
@@ -203,6 +299,11 @@ fn cmd_status() -> Result<()> {
     println!("scope: all worktrees via {}", common_dir.display());
     println!("algorithm: {:?}", manifest.encryption_algorithm);
     println!("identity: {} ({:?})", identity.label, identity.source);
+    println!("recipients: {}", recipients.len());
+    println!("wrapped keys: {}", wrapped_files.len());
+    if let Some(session) = session {
+        println!("unlock source: {}", session.key_source);
+    }
     println!(
         "protected patterns: {}",
         manifest.protected_patterns.join(", ")
@@ -212,11 +313,14 @@ fn cmd_status() -> Result<()> {
 
 fn cmd_add_user(key: Option<String>, github_keys_url: Option<String>) -> Result<()> {
     let repo_root = current_repo_root()?;
+    let session_key = repo_key_from_session()?;
+
+    let mut new_recipients = Vec::new();
 
     if let Some(url) = github_keys_url {
         let added = add_recipients_from_github_keys(&repo_root, &url)?;
-        println!("added {} recipients from {}", added.len(), url);
-        return Ok(());
+        new_recipients.extend(added);
+        println!("added {} recipients from {}", new_recipients.len(), url);
     }
 
     if let Some(key_input) = key {
@@ -233,10 +337,37 @@ fn cmd_add_user(key: Option<String>, github_keys_url: Option<String>) -> Result<
             "added recipient {} ({})",
             recipient.fingerprint, recipient.key_type
         );
-        return Ok(());
+        new_recipients.push(recipient);
     }
 
-    anyhow::bail!("provide --key <pubkey|path.pub> or --github-keys-url <url>")
+    if new_recipients.is_empty() {
+        anyhow::bail!("provide --key <pubkey|path.pub> or --github-keys-url <url>");
+    }
+
+    if let Some(key) = session_key {
+        let mut wrapped_count = 0;
+        for recipient in &new_recipients {
+            wrap_repo_key_for_recipient(&repo_root, recipient, &key)?;
+            wrapped_count += 1;
+        }
+        println!("wrapped repo key for {} new recipients", wrapped_count);
+    } else {
+        println!(
+            "warning: repository is locked; run `git-ssh-crypt unlock` then `git-ssh-crypt rewrap` to grant access"
+        );
+    }
+
+    Ok(())
+}
+
+fn cmd_rewrap() -> Result<()> {
+    let repo_root = current_repo_root()?;
+    let Some(key) = repo_key_from_session()? else {
+        anyhow::bail!("repository is locked; run `git-ssh-crypt unlock` first");
+    };
+    let wrapped = wrap_repo_key_for_all_recipients(&repo_root, &key)?;
+    println!("rewrapped repository key for {} recipients", wrapped.len());
+    Ok(())
 }
 
 fn repo_key_from_session() -> Result<Option<Vec<u8>>> {

@@ -1,6 +1,3 @@
 target/
 .DS_Store
-
-# Local development/session state
-.git-ssh-crypt/repo-key.hex
 .direnv/

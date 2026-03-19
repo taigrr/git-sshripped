@@ -26,6 +26,7 @@ repository = "https://github.com/BSteffaniak/git-ssh-crypt"
 version = "0.1.0-alpha.0"
 
 [workspace.dependencies]
+age = { version = "0.11.1", default-features = false, features = ["ssh"] }
 git_ssh_crypt_cli_models = { version = "0.1.0-alpha.0", path = "packages/cli/models" }
 git_ssh_crypt_encryption = { version = "0.1.0-alpha.0", path = "packages/encryption", default-features = false }
 git_ssh_crypt_encryption_models = { version = "0.1.0-alpha.0", path = "packages/encryption/models" }

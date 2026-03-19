@@ -28,10 +28,10 @@ Current domains:
   - smudge fail-open (returns ciphertext if locked)
   - clean fail-closed for protected plaintext when locked
 - Deterministic encrypted file format with AES-SIV backend
+- Repository key wrapping to SSH recipients using age SSH support
+- Unlock by unwrapping wrapped key files with local SSH private keys
 
 ## Important implementation note
 
-Recipient key wrapping is scaffolded (recipient import/storage exists), but full
-per-recipient wrapping/unwrapping of repository keys is not complete yet. During
-bootstrap, `init` writes a local repo key to `.git-ssh-crypt/repo-key.hex` and
-`unlock` can consume that key or `--key-hex`.
+`filter-process` protocol is not implemented yet; git filter wiring currently uses
+`clean`/`smudge` subprocess commands.
