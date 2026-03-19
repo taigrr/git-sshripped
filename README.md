@@ -57,3 +57,13 @@ fallback commands.
 - `git-ssh-crypt doctor`
 - `git-ssh-crypt verify --strict`
 - `cargo deny check`
+
+## Operational self-check
+
+Run this sequence in a repository using git-ssh-crypt:
+
+```bash
+git-ssh-crypt doctor
+git-ssh-crypt verify --strict
+cargo test -p git_ssh_crypt_cli --test smoke_ci
+```

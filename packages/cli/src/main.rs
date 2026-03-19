@@ -2,6 +2,7 @@
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
 #![allow(clippy::multiple_crate_versions)]
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
@@ -185,6 +186,47 @@ fn wrapped_key_files(repo_root: &std::path::Path) -> Result<Vec<PathBuf>> {
     }
     files.sort();
     Ok(files)
+}
+
+fn snapshot_wrapped_files(repo_root: &std::path::Path) -> Result<BTreeMap<String, Vec<u8>>> {
+    let dir = wrapped_store_dir(repo_root);
+    let mut snapshot = BTreeMap::new();
+    if !dir.exists() {
+        return Ok(snapshot);
+    }
+
+    for file in wrapped_key_files(repo_root)? {
+        let Some(name) = file.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let bytes = fs::read(&file)
+            .with_context(|| format!("failed to read wrapped file {}", file.display()))?;
+        snapshot.insert(name.to_string(), bytes);
+    }
+
+    Ok(snapshot)
+}
+
+fn restore_wrapped_files(
+    repo_root: &std::path::Path,
+    snapshot: &BTreeMap<String, Vec<u8>>,
+) -> Result<()> {
+    let dir = wrapped_store_dir(repo_root);
+    fs::create_dir_all(&dir)
+        .with_context(|| format!("failed to create wrapped directory {}", dir.display()))?;
+
+    for file in wrapped_key_files(repo_root)? {
+        fs::remove_file(&file)
+            .with_context(|| format!("failed to remove wrapped file {}", file.display()))?;
+    }
+
+    for (name, bytes) in snapshot {
+        let path = dir.join(name);
+        fs::write(&path, bytes)
+            .with_context(|| format!("failed to restore wrapped file {}", path.display()))?;
+    }
+
+    Ok(())
 }
 
 fn cmd_init(
@@ -616,9 +658,19 @@ fn cmd_rotate_key(auto_reencrypt: bool) -> Result<()> {
         anyhow::bail!("no recipients configured; cannot rotate repository key");
     }
 
+    let wrapped_snapshot = snapshot_wrapped_files(&repo_root)?;
+
     let mut key = [0_u8; 32];
     rand::rng().fill_bytes(&mut key);
-    let wrapped = wrap_repo_key_for_all_recipients(&repo_root, &key)?;
+    let wrapped = match wrap_repo_key_for_all_recipients(&repo_root, &key) {
+        Ok(wrapped) => wrapped,
+        Err(err) => {
+            restore_wrapped_files(&repo_root, &wrapped_snapshot)?;
+            anyhow::bail!(
+                "rotate-key failed while wrapping new key; previous wrapped files restored: {err:#}"
+            );
+        }
+    };
     write_unlock_session(&common_dir, &key, "rotated")?;
 
     println!(
@@ -635,10 +687,11 @@ fn cmd_rotate_key(auto_reencrypt: bool) -> Result<()> {
             }
             Err(err) => {
                 let mut rollback_errors = Vec::new();
-                if let Err(rollback_wrap_err) =
-                    wrap_repo_key_for_all_recipients(&repo_root, &previous_key)
+                if let Err(rollback_wrap_err) = restore_wrapped_files(&repo_root, &wrapped_snapshot)
                 {
-                    rollback_errors.push(format!("rewrap rollback failed: {rollback_wrap_err:#}"));
+                    rollback_errors.push(format!(
+                        "wrapped-file rollback failed: {rollback_wrap_err:#}"
+                    ));
                 }
                 if let Err(rollback_session_err) =
                     write_unlock_session(&common_dir, &previous_key, "rollback")
@@ -1238,6 +1291,7 @@ fn write_empty_success_list_available_blobs(writer: &mut impl Write) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use std::io::Cursor;
 
     #[test]
@@ -1274,5 +1328,26 @@ mod tests {
             handle_filter_handshake(&mut reader, &mut output).expect("handshake should work");
         assert!(pending.is_none());
         assert!(!output.is_empty());
+    }
+
+    proptest! {
+        #[test]
+        fn parse_kv_accepts_well_formed_lines(
+            key in "[a-z]{1,16}",
+            value in "[a-zA-Z0-9_./=-]{0,64}"
+        ) {
+            let line = format!("{key}={value}\n");
+            let (parsed_key, parsed_value) = parse_kv(line.as_bytes()).expect("parse should work");
+            prop_assert_eq!(parsed_key, key);
+            prop_assert_eq!(parsed_value, value);
+        }
+
+        #[test]
+        fn read_pkt_line_rejects_invalid_short_lengths(raw in 1_u8..4_u8) {
+            let len = format!("{:04x}", raw);
+            let mut cursor = Cursor::new(len.into_bytes());
+            let result = read_pkt_line(&mut cursor);
+            prop_assert!(result.is_err());
+        }
     }
 }

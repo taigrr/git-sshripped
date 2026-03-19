@@ -14,7 +14,11 @@ allow = [
 ]
 
 [advisories]
-ignore = []
+ignore = [
+  # age currently depends on rsa for ssh-rsa recipient support; no upstream fix available yet.
+  # Track: https://rustsec.org/advisories/RUSTSEC-2023-0071
+  "RUSTSEC-2023-0071",
+]
 
 [bans]
 multiple-versions = "warn"

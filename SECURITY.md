@@ -32,6 +32,7 @@ Deterministic encryption is used for Git filter stability. This leaks:
 - Keep at least two valid recipients to avoid lockout.
 - Run `git-ssh-crypt doctor` and `git-ssh-crypt verify --strict` in CI.
 - Rotate recipients/keys when access policy changes.
+- Prefer `ssh-ed25519` recipients; use `ssh-rsa` only when compatibility requires it.
 
 ## Reporting security issues
 

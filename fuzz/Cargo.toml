@@ -1,0 +1,28 @@
+[package]
+name = "git_ssh_crypt_fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+anyhow = { workspace = true, features = ["std"] }
+git_ssh_crypt_encryption = { workspace = true }
+git_ssh_crypt_encryption_models = { workspace = true }
+
+[[bin]]
+name = "encryption_decrypt"
+path = "fuzz_targets/encryption_decrypt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "filter_pkt_protocol"
+path = "fuzz_targets/filter_pkt_protocol.rs"
+test = false
+doc = false
+bench = false

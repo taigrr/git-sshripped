@@ -36,4 +36,5 @@ fail-on-warnings = []
 crypto-aes-siv = ["git_ssh_crypt_encryption/crypto-aes-siv"]
 
 [dev-dependencies]
+proptest = { workspace = true }
 tempfile = { workspace = true }
