@@ -352,3 +352,81 @@ fn recipient_remove_guard_and_verify_strict() {
     ]));
     assert!(stderr.contains("refusing to remove the last recipient"));
 }
+
+#[test]
+fn rotate_key_and_reencrypt_changes_encrypted_blob() {
+    let bin = env!("CARGO_BIN_EXE_git-ssh-crypt");
+    let temp = TempDir::new().expect("temp dir should create");
+    let repo = temp.path();
+
+    run_ok(Command::new("git").current_dir(repo).args(["init"]));
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["config", "user.name", "test"]),
+    );
+    run_ok(Command::new("git").current_dir(repo).args([
+        "config",
+        "user.email",
+        "test@example.com",
+    ]));
+
+    let keys_dir = repo.join("keys");
+    fs::create_dir_all(&keys_dir).expect("keys dir should create");
+    let private_key = keys_dir.join("id_ed25519");
+    let public_key = keys_dir.join("id_ed25519.pub");
+    fs::write(&private_key, TEST_PRIVATE_KEY).expect("private key should write");
+    fs::write(&public_key, TEST_PUBLIC_KEY).expect("public key should write");
+
+    run_ok(Command::new(bin).current_dir(repo).args([
+        "init",
+        "--pattern",
+        "secrets/**",
+        "--recipient-key",
+        public_key.to_str().expect("public key path should be utf8"),
+    ]));
+    configure_filter_paths(repo, bin);
+
+    run_ok(
+        Command::new(bin).current_dir(repo).args([
+            "unlock",
+            "--identity",
+            private_key
+                .to_str()
+                .expect("private key path should be utf8"),
+        ]),
+    );
+
+    let secret_dir = repo.join("secrets");
+    fs::create_dir_all(&secret_dir).expect("secrets dir should create");
+    fs::write(secret_dir.join("rotate.env"), b"TOKEN=rotate_me\n").expect("secret should write");
+    run_ok(Command::new("git").current_dir(repo).args(["add", "."]));
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["commit", "-m", "before rotate"]),
+    );
+
+    let before = run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["show", "HEAD:secrets/rotate.env"]),
+    );
+    assert!(before.starts_with(b"GSC1"));
+
+    run_ok(Command::new(bin).current_dir(repo).args(["rotate-key"]));
+    run_ok(Command::new(bin).current_dir(repo).args(["reencrypt"]));
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["commit", "-am", "after rotate"]),
+    );
+
+    let after = run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["show", "HEAD:secrets/rotate.env"]),
+    );
+    assert!(after.starts_with(b"GSC1"));
+    assert_ne!(before, after);
+}

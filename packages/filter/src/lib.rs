@@ -15,7 +15,7 @@ fn compile_protected_set(manifest: &RepositoryManifest) -> Result<GlobSet> {
     Ok(builder.build()?)
 }
 
-fn is_protected(manifest: &RepositoryManifest, path: &str) -> Result<bool> {
+pub fn is_protected_path(manifest: &RepositoryManifest, path: &str) -> Result<bool> {
     let set = compile_protected_set(manifest)?;
     Ok(set.is_match(path))
 }
@@ -26,7 +26,7 @@ pub fn clean(
     path: &str,
     content: &[u8],
 ) -> Result<Vec<u8>> {
-    if !is_protected(manifest, path)? {
+    if !is_protected_path(manifest, path)? {
         return Ok(content.to_vec());
     }
 
@@ -49,7 +49,7 @@ pub fn smudge(
     path: &str,
     content: &[u8],
 ) -> Result<Vec<u8>> {
-    if !is_protected(manifest, path)? {
+    if !is_protected_path(manifest, path)? {
         return Ok(content.to_vec());
     }
 
@@ -70,7 +70,7 @@ pub fn diff(
     path: &str,
     content: &[u8],
 ) -> Result<Vec<u8>> {
-    if !is_protected(manifest, path)? || !is_encrypted(content) {
+    if !is_protected_path(manifest, path)? || !is_encrypted(content) {
         return Ok(content.to_vec());
     }
 

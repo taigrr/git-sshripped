@@ -11,7 +11,7 @@ use base64::Engine;
 use clap::{Parser, Subcommand, ValueEnum};
 use git_ssh_crypt_cli_models::InitOptions;
 use git_ssh_crypt_encryption_models::{ENCRYPTED_MAGIC, EncryptionAlgorithm};
-use git_ssh_crypt_filter::{clean, diff, smudge};
+use git_ssh_crypt_filter::{clean, diff, is_protected_path, smudge};
 use git_ssh_crypt_recipient::{
     add_recipient_from_public_key, add_recipients_from_github_keys, list_recipients,
     remove_recipient_by_fingerprint, wrap_repo_key_for_all_recipients, wrap_repo_key_for_recipient,
@@ -76,6 +76,8 @@ enum Command {
     Status,
     Doctor,
     Rewrap,
+    RotateKey,
+    Reencrypt,
     AddUser {
         #[arg(long)]
         key: Option<String>,
@@ -133,6 +135,8 @@ fn main() -> Result<()> {
         Command::Status => cmd_status(),
         Command::Doctor => cmd_doctor(),
         Command::Rewrap => cmd_rewrap(),
+        Command::RotateKey => cmd_rotate_key(),
+        Command::Reencrypt => cmd_reencrypt(),
         Command::AddUser {
             key,
             github_keys_url,
@@ -471,21 +475,57 @@ fn git_show_index_path(repo_root: &std::path::Path, path: &str) -> Result<Vec<u8
     Ok(output.stdout)
 }
 
+fn git_add_paths(repo_root: &std::path::Path, paths: &[String], renormalize: bool) -> Result<()> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+
+    let mut args = vec!["add".to_string()];
+    if renormalize {
+        args.push("--renormalize".to_string());
+    }
+    args.push("--".to_string());
+    args.extend(paths.iter().cloned());
+
+    let output = std::process::Command::new("git")
+        .current_dir(repo_root)
+        .args(args)
+        .output()
+        .context("failed to run git add")?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "git add failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+
+    Ok(())
+}
+
+fn protected_tracked_files(
+    repo_root: &std::path::Path,
+    manifest: &RepositoryManifest,
+) -> Result<Vec<String>> {
+    let files = git_ls_files(repo_root)?;
+    let mut protected = Vec::new();
+    for path in files {
+        if is_protected_path(manifest, &path)? {
+            protected.push(path);
+        }
+    }
+    Ok(protected)
+}
+
 fn cmd_verify(strict: bool) -> Result<()> {
     let repo_root = current_repo_root()?;
     let manifest = read_manifest(&repo_root)?;
     let strict = strict || manifest.strict_mode;
 
-    let files = git_ls_files(&repo_root)?;
+    let files = protected_tracked_files(&repo_root, &manifest)?;
     let mut failures = Vec::new();
 
     for path in files {
-        let protected =
-            git_ssh_crypt_filter::clean(&manifest, None, &path, b"verify-probe").is_err();
-        if !protected {
-            continue;
-        }
-
         let blob = git_show_index_path(&repo_root, &path)?;
         if !blob.starts_with(&ENCRYPTED_MAGIC) {
             failures.push(path);
@@ -522,6 +562,53 @@ fn cmd_rewrap() -> Result<()> {
     };
     let wrapped = wrap_repo_key_for_all_recipients(&repo_root, &key)?;
     println!("rewrapped repository key for {} recipients", wrapped.len());
+    Ok(())
+}
+
+fn cmd_reencrypt() -> Result<()> {
+    let repo_root = current_repo_root()?;
+    let manifest = read_manifest(&repo_root)?;
+    if repo_key_from_session()?.is_none() {
+        anyhow::bail!("repository is locked; run `git-ssh-crypt unlock` first");
+    }
+
+    let protected = protected_tracked_files(&repo_root, &manifest)?;
+    if protected.is_empty() {
+        println!("reencrypt: no protected tracked files found");
+        return Ok(());
+    }
+
+    const CHUNK: usize = 100;
+    for chunk in protected.chunks(CHUNK) {
+        git_add_paths(&repo_root, chunk, true)?;
+    }
+
+    println!("reencrypt: refreshed {} protected files", protected.len());
+    Ok(())
+}
+
+fn cmd_rotate_key() -> Result<()> {
+    let repo_root = current_repo_root()?;
+    let common_dir = current_common_dir()?;
+    if repo_key_from_session()?.is_none() {
+        anyhow::bail!("repository is locked; run `git-ssh-crypt unlock` first");
+    }
+
+    let recipients = list_recipients(&repo_root)?;
+    if recipients.is_empty() {
+        anyhow::bail!("no recipients configured; cannot rotate repository key");
+    }
+
+    let mut key = [0_u8; 32];
+    rand::rng().fill_bytes(&mut key);
+    let wrapped = wrap_repo_key_for_all_recipients(&repo_root, &key)?;
+    write_unlock_session(&common_dir, &key, "rotated")?;
+
+    println!(
+        "rotate-key: generated new repository key and wrapped for {} recipients",
+        wrapped.len()
+    );
+    println!("rotate-key: run `git-ssh-crypt reencrypt` and commit to complete rotation");
     Ok(())
 }
 
