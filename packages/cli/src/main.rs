@@ -967,27 +967,41 @@ fn cmd_init(
     }
 
     let recipients = list_recipients(&repo_root)?;
-    if recipients.is_empty() {
-        anyhow::bail!(
-            "no recipients available; provide --recipient-key, --github-keys-url, or ensure ~/.ssh/id_ed25519.pub exists"
-        );
-    }
 
     let mut key = [0_u8; 32];
     rand::rng().fill_bytes(&mut key);
     let mut manifest = manifest;
     manifest.repo_key_id = Some(repo_key_id_from_bytes(&key));
     write_manifest(&repo_root, &manifest)?;
-    let wrapped = wrap_repo_key_for_all_recipients(&repo_root, &key)?;
+
+    let wrapped_count = if recipients.is_empty() {
+        // No recipients yet — store the repo key in a local unlock session so that
+        // subsequent `add-github-user` / `add-user` can wrap it for new recipients.
+        let common_dir = current_common_dir()?;
+        let key_id = repo_key_id_from_bytes(&key);
+        write_unlock_session(&common_dir, &key, "init", Some(key_id))?;
+        0
+    } else {
+        let wrapped = wrap_repo_key_for_all_recipients(&repo_root, &key)?;
+        wrapped.len()
+    };
 
     println!("initialized git-sshripped in {}", repo_root.display());
     println!("algorithm: {:?}", manifest.encryption_algorithm);
     println!("strict_mode: {}", manifest.strict_mode);
     println!("patterns: {}", patterns.join(", "));
     println!("recipients: {}", recipients.len());
-    println!("wrapped keys written: {}", wrapped.len());
-    if added_recipients.is_empty() {
+    println!("wrapped keys written: {}", wrapped_count);
+    if added_recipients.is_empty() && !recipients.is_empty() {
         println!("note: reused existing recipient definitions");
+    }
+    if recipients.is_empty() {
+        eprintln!(
+            "warning: no recipients configured; the repo key exists only in your local session"
+        );
+        eprintln!(
+            "warning: add a recipient before the session is lost (e.g. git-sshripped add-github-user --username <user>)"
+        );
     }
     Ok(())
 }
