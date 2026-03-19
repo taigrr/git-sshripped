@@ -147,9 +147,11 @@ fn filter_process_roundtrip_with_lock_unlock() {
             .args(["show", "HEAD:secrets/app.env"]),
     );
     assert!(staged_blob.starts_with(b"GSC1"));
-    assert!(!staged_blob
-        .windows(b"top_secret".len())
-        .any(|w| w == b"top_secret"));
+    assert!(
+        !staged_blob
+            .windows(b"top_secret".len())
+            .any(|w| w == b"top_secret")
+    );
 
     run_ok(Command::new(bin).current_dir(repo).args(["lock"]));
     fs::remove_file(&secret_file).expect("secret file should be removable while locked");
@@ -792,4 +794,175 @@ fn migrate_write_report_outputs_json_file() {
         serde_json::from_str(&report_text).expect("report should parse as json");
     assert_eq!(report_json["dry_run"], true);
     assert_eq!(report_json["gitattributes"]["legacy_lines_replaced"], 1);
+}
+
+#[test]
+fn lock_refuses_dirty_protected_files_without_force() {
+    let bin = env!("CARGO_BIN_EXE_git-ssh-crypt");
+    let temp = TempDir::new().expect("temp dir should create");
+    let repo = temp.path();
+
+    run_ok(Command::new("git").current_dir(repo).args(["init"]));
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["config", "user.name", "test"]),
+    );
+    run_ok(Command::new("git").current_dir(repo).args([
+        "config",
+        "user.email",
+        "test@example.com",
+    ]));
+
+    let keys_dir = repo.join("keys");
+    fs::create_dir_all(&keys_dir).expect("keys dir should create");
+    let private_key = keys_dir.join("id_ed25519");
+    let public_key = keys_dir.join("id_ed25519.pub");
+    fs::write(&private_key, TEST_PRIVATE_KEY).expect("private key should write");
+    fs::write(&public_key, TEST_PUBLIC_KEY).expect("public key should write");
+
+    run_ok(Command::new(bin).current_dir(repo).args([
+        "init",
+        "--pattern",
+        "secrets/**",
+        "--recipient-key",
+        public_key.to_str().expect("public key path should be utf8"),
+    ]));
+    configure_filter_paths(repo, bin);
+
+    run_ok(
+        Command::new(bin).current_dir(repo).args([
+            "unlock",
+            "--identity",
+            private_key
+                .to_str()
+                .expect("private key path should be utf8"),
+        ]),
+    );
+
+    let secret_dir = repo.join("secrets");
+    fs::create_dir_all(&secret_dir).expect("secrets dir should create");
+    let secret_file = secret_dir.join("dirty.env");
+    fs::write(&secret_file, b"TOKEN=clean\n").expect("secret should write");
+    run_ok(Command::new("git").current_dir(repo).args(["add", "."]));
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["commit", "-m", "seed protected file"]),
+    );
+
+    fs::write(&secret_file, b"TOKEN=dirty\n").expect("dirty secret should write");
+    let (_, stderr) = run_fail(Command::new(bin).current_dir(repo).args(["lock"]));
+    assert!(
+        stderr.contains("lock refused") || stderr.contains("protected files have local changes")
+    );
+
+    run_ok(
+        Command::new(bin)
+            .current_dir(repo)
+            .args(["lock", "--force"]),
+    );
+    let locked = fs::read(&secret_file).expect("locked file should read");
+    assert!(locked.starts_with(b"GSC1"));
+}
+
+#[test]
+fn worktree_key_rotation_causes_old_branch_session_mismatch_until_unlock() {
+    let bin = env!("CARGO_BIN_EXE_git-ssh-crypt");
+    let temp = TempDir::new().expect("temp dir should create");
+    let repo = temp.path();
+
+    run_ok(Command::new("git").current_dir(repo).args(["init"]));
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["config", "user.name", "test"]),
+    );
+    run_ok(Command::new("git").current_dir(repo).args([
+        "config",
+        "user.email",
+        "test@example.com",
+    ]));
+
+    let keys_dir = repo.join("keys");
+    fs::create_dir_all(&keys_dir).expect("keys dir should create");
+    let private_key = keys_dir.join("id_ed25519");
+    let public_key = keys_dir.join("id_ed25519.pub");
+    fs::write(&private_key, TEST_PRIVATE_KEY).expect("private key should write");
+    fs::write(&public_key, TEST_PUBLIC_KEY).expect("public key should write");
+
+    run_ok(Command::new(bin).current_dir(repo).args([
+        "init",
+        "--pattern",
+        "secrets/**",
+        "--recipient-key",
+        public_key.to_str().expect("public key path should be utf8"),
+    ]));
+    configure_filter_paths(repo, bin);
+    run_ok(
+        Command::new(bin).current_dir(repo).args([
+            "unlock",
+            "--identity",
+            private_key
+                .to_str()
+                .expect("private key path should be utf8"),
+        ]),
+    );
+
+    let secret_dir = repo.join("secrets");
+    fs::create_dir_all(&secret_dir).expect("secrets dir should create");
+    fs::write(secret_dir.join("base.env"), b"TOKEN=base\n").expect("base secret should write");
+    run_ok(Command::new("git").current_dir(repo).args(["add", "."]));
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["commit", "-m", "base"]),
+    );
+
+    let worktree_dir = temp.path().join("wt-rotate");
+    run_ok(Command::new("git").current_dir(repo).args([
+        "worktree",
+        "add",
+        "-b",
+        "wt-rotate",
+        worktree_dir.to_str().expect("worktree path should be utf8"),
+    ]));
+
+    run_ok(
+        Command::new(bin)
+            .current_dir(&worktree_dir)
+            .args(["rotate-key", "--auto-reencrypt"]),
+    );
+    run_ok(Command::new("git").current_dir(&worktree_dir).args([
+        "commit",
+        "-am",
+        "rotate in worktree",
+    ]));
+
+    fs::write(secret_dir.join("oldbranch.env"), b"TOKEN=oldbranch\n")
+        .expect("oldbranch secret should write");
+    let (_, stderr) = run_fail(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["add", "secrets/oldbranch.env"]),
+    );
+    assert!(
+        stderr.contains("unlock session key does not match this worktree manifest")
+            || stderr.contains("clean filter")
+    );
+
+    run_ok(
+        Command::new(bin).current_dir(repo).args([
+            "unlock",
+            "--identity",
+            private_key
+                .to_str()
+                .expect("private key path should be utf8"),
+        ]),
+    );
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["add", "secrets/oldbranch.env"]),
+    );
 }

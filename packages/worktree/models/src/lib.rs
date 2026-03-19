@@ -6,6 +6,8 @@
 pub struct UnlockSession {
     pub key_b64: String,
     pub key_source: String,
+    #[serde(default)]
+    pub repo_key_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

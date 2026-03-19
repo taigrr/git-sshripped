@@ -46,7 +46,12 @@ pub fn session_file(common_dir: &Path) -> PathBuf {
         .join("unlock.json")
 }
 
-pub fn write_unlock_session(common_dir: &Path, key: &[u8], key_source: &str) -> Result<()> {
+pub fn write_unlock_session(
+    common_dir: &Path,
+    key: &[u8],
+    key_source: &str,
+    repo_key_id: Option<String>,
+) -> Result<()> {
     let file = session_file(common_dir);
     let parent = file
         .parent()
@@ -57,6 +62,7 @@ pub fn write_unlock_session(common_dir: &Path, key: &[u8], key_source: &str) -> 
     let session = UnlockSession {
         key_b64: base64::engine::general_purpose::STANDARD_NO_PAD.encode(key),
         key_source: key_source.to_string(),
+        repo_key_id,
     };
     let text =
         serde_json::to_string_pretty(&session).context("failed to serialize unlock session")?;

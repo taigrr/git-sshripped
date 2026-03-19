@@ -38,6 +38,7 @@ use git_ssh_crypt_worktree::{
     clear_unlock_session, git_common_dir, git_toplevel, read_unlock_session, write_unlock_session,
 };
 use rand::RngCore;
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum CliAlgorithm {
@@ -92,7 +93,12 @@ enum Command {
         #[arg(long)]
         no_agent: bool,
     },
-    Lock,
+    Lock {
+        #[arg(long)]
+        force: bool,
+        #[arg(long)]
+        no_scrub: bool,
+    },
     Status {
         #[arg(long)]
         json: bool,
@@ -264,7 +270,7 @@ fn main() -> Result<()> {
             prefer_agent,
             no_agent,
         } => cmd_unlock(key_hex, identities, github_user, prefer_agent, no_agent),
-        Command::Lock => cmd_lock(),
+        Command::Lock { force, no_scrub } => cmd_lock(force, no_scrub),
         Command::Status { json } => cmd_status(json),
         Command::Doctor { json } => cmd_doctor(json),
         Command::Rewrap => cmd_rewrap(),
@@ -474,6 +480,12 @@ fn now_unix() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
+fn repo_key_id_from_bytes(key: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(key);
+    hex::encode(hasher.finalize())
+}
+
 fn allowed_key_types_set(manifest: &RepositoryManifest) -> std::collections::HashSet<&str> {
     manifest
         .allowed_key_types
@@ -583,6 +595,18 @@ fn collect_doctor_failures(
     if manifest.allowed_key_types.is_empty() {
         failures.push("manifest allowed_key_types cannot be empty".to_string());
     }
+    if manifest.repo_key_id.is_none() {
+        failures.push(
+            "manifest repo_key_id is missing; run `git-ssh-crypt unlock` to bind current key"
+                .to_string(),
+        );
+    }
+    if manifest.repo_key_id.is_none() {
+        failures.push(
+            "manifest repo_key_id is missing; run `git-ssh-crypt unlock` to bind current key"
+                .to_string(),
+        );
+    }
 
     let process_cfg = git_local_config(repo_root, "filter.git-ssh-crypt.process")?;
     if !process_cfg
@@ -650,6 +674,23 @@ fn collect_doctor_failures(
                 "unlock session key length is {}, expected 32",
                 decoded.len()
             ));
+        }
+
+        if let Some(expected) = &manifest.repo_key_id {
+            let actual = repo_key_id_from_bytes(&decoded);
+            if &actual != expected {
+                failures.push(format!(
+                    "unlock session repo key mismatch: expected {}, got {}",
+                    expected, actual
+                ));
+            }
+            if session.repo_key_id.as_deref() != Some(expected.as_str()) {
+                failures.push(format!(
+                    "unlock session metadata repo_key_id mismatch: expected {}, got {}",
+                    expected,
+                    session.repo_key_id.as_deref().unwrap_or("missing")
+                ));
+            }
         }
     }
 
@@ -749,6 +790,9 @@ fn cmd_init(
 
     let mut key = [0_u8; 32];
     rand::rng().fill_bytes(&mut key);
+    let mut manifest = manifest;
+    manifest.repo_key_id = Some(repo_key_id_from_bytes(&key));
+    write_manifest(&repo_root, &manifest)?;
     let wrapped = wrap_repo_key_for_all_recipients(&repo_root, &key)?;
 
     println!("initialized git-ssh-crypt in {}", repo_root.display());
@@ -772,6 +816,7 @@ fn cmd_unlock(
 ) -> Result<()> {
     let repo_root = current_repo_root()?;
     let common_dir = current_common_dir()?;
+    let mut manifest = read_manifest(&repo_root)?;
 
     let (key, key_source) = if let Some(hex_value) = key_hex {
         (
@@ -855,7 +900,21 @@ fn cmd_unlock(
         }
     };
 
-    write_unlock_session(&common_dir, &key, &key_source)?;
+    let key_id = repo_key_id_from_bytes(&key);
+    if let Some(expected) = &manifest.repo_key_id {
+        if expected != &key_id {
+            anyhow::bail!(
+                "unlock failed: derived repo key does not match manifest repo_key_id; expected {}, got {}; run from the correct branch/worktree or re-import/rotate key",
+                expected,
+                key_id
+            );
+        }
+    } else {
+        manifest.repo_key_id = Some(key_id.clone());
+        write_manifest(&repo_root, &manifest)?;
+    }
+
+    write_unlock_session(&common_dir, &key, &key_source, Some(key_id))?;
     println!(
         "unlocked repository across worktrees via {}",
         common_dir.display()
@@ -863,10 +922,55 @@ fn cmd_unlock(
     Ok(())
 }
 
-fn cmd_lock() -> Result<()> {
+fn cmd_lock(force: bool, no_scrub: bool) -> Result<()> {
+    let repo_root = current_repo_root()?;
     let common_dir = current_common_dir()?;
+    let previous_session = read_unlock_session(&common_dir)?;
+
+    let protected = if no_scrub {
+        Vec::new()
+    } else {
+        let manifest = read_manifest(&repo_root)?;
+        let protected = protected_tracked_files(&repo_root, &manifest)?;
+        let dirty = protected_dirty_paths(&repo_root, &protected)?;
+        if !dirty.is_empty() && !force {
+            let preview = dirty.iter().take(8).cloned().collect::<Vec<_>>().join(", ");
+            anyhow::bail!(
+                "lock refused: protected files have local changes ({preview}); commit/stash/reset them or re-run with --force"
+            );
+        }
+        protected
+    };
+
     clear_unlock_session(&common_dir)?;
-    println!("locked repository across worktrees");
+    if !no_scrub && let Err(scrub_err) = scrub_protected_paths(&repo_root, &protected) {
+        if let Some(previous_session) = previous_session {
+            let rollback = base64::engine::general_purpose::STANDARD_NO_PAD
+                .decode(previous_session.key_b64)
+                .context("failed to decode previous unlock session key while rolling back lock")
+                .and_then(|key| {
+                    write_unlock_session(
+                        &common_dir,
+                        &key,
+                        &previous_session.key_source,
+                        previous_session.repo_key_id,
+                    )
+                });
+
+            if let Err(rollback_err) = rollback {
+                anyhow::bail!(
+                    "lock scrub failed: {scrub_err:#}; failed to restore previous unlock session: {rollback_err:#}"
+                );
+            }
+        }
+        anyhow::bail!("lock scrub failed: {scrub_err:#}; previous session restored");
+    }
+
+    if no_scrub {
+        println!("locked repository across worktrees (no scrub)");
+    } else {
+        println!("locked repository across worktrees; scrubbed protected files in this worktree");
+    }
     Ok(())
 }
 
@@ -887,6 +991,7 @@ fn cmd_status(json: bool) -> Result<()> {
             "state": if session.is_some() { "UNLOCKED" } else { "LOCKED" },
             "algorithm": format!("{:?}", manifest.encryption_algorithm),
             "strict_mode": manifest.strict_mode,
+            "repo_key_id": manifest.repo_key_id,
             "min_recipients": manifest.min_recipients,
             "allowed_key_types": manifest.allowed_key_types,
             "require_doctor_clean_for_rotate": manifest.require_doctor_clean_for_rotate,
@@ -894,6 +999,7 @@ fn cmd_status(json: bool) -> Result<()> {
             "recipients": recipients.len(),
             "wrapped_keys": wrapped_files.len(),
             "unlock_source": session.as_ref().map(|s| s.key_source.clone()),
+            "unlock_repo_key_id": session.as_ref().and_then(|s| s.repo_key_id.clone()),
             "agent_helper_resolved": helper.as_ref().map(|(path, _)| path.display().to_string()),
             "agent_helper_source": helper.as_ref().map(|(_, source)| source.clone()),
             "protected_patterns": manifest.protected_patterns,
@@ -914,6 +1020,10 @@ fn cmd_status(json: bool) -> Result<()> {
     println!("scope: all worktrees via {}", common_dir.display());
     println!("algorithm: {:?}", manifest.encryption_algorithm);
     println!("strict_mode: {}", manifest.strict_mode);
+    println!(
+        "repo_key_id: {}",
+        manifest.repo_key_id.as_deref().unwrap_or("missing")
+    );
     println!("min_recipients: {}", manifest.min_recipients);
     println!(
         "allowed_key_types: {}",
@@ -928,6 +1038,10 @@ fn cmd_status(json: bool) -> Result<()> {
     println!("wrapped keys: {}", wrapped_files.len());
     if let Some(session) = session {
         println!("unlock source: {}", session.key_source);
+        println!(
+            "unlock repo_key_id: {}",
+            session.repo_key_id.as_deref().unwrap_or("missing")
+        );
     }
     match helper {
         Some((path, source)) => println!("agent helper: {} ({})", path.display(), source),
@@ -1781,6 +1895,9 @@ fn cmd_migrate_from_git_crypt(
     let mut manifest_before = read_manifest(&repo_root).unwrap_or_default();
     let old_patterns = manifest_before.protected_patterns.clone();
     manifest_before.protected_patterns = plan.patterns.clone();
+    if let Some(key) = repo_key_from_session().ok().flatten() {
+        manifest_before.repo_key_id = Some(repo_key_id_from_bytes(&key));
+    }
     let manifest_after = manifest_before;
 
     let imported_patterns = manifest_after.protected_patterns.len();
@@ -1836,6 +1953,7 @@ fn cmd_migrate_from_git_crypt(
         },
         "imported_patterns": imported_patterns,
         "changed_patterns": changed_patterns,
+        "repo_key_id": manifest_after.repo_key_id,
         "reencrypt_requested": reencrypt,
         "reencrypted_files": reencrypted_files,
         "verify_requested": verify,
@@ -1882,7 +2000,7 @@ fn cmd_export_repo_key(out: &str) -> Result<()> {
 fn cmd_import_repo_key(input: &str) -> Result<()> {
     let repo_root = current_repo_root()?;
     let common_dir = current_common_dir()?;
-    let manifest = read_manifest(&repo_root)?;
+    let mut manifest = read_manifest(&repo_root)?;
     enforce_existing_recipient_policy(&repo_root, &manifest, "import-repo-key")?;
     let text = fs::read_to_string(input).with_context(|| format!("failed to read {input}"))?;
     let key = hex::decode(text.trim()).context("import key file must contain hex key bytes")?;
@@ -1890,8 +2008,12 @@ fn cmd_import_repo_key(input: &str) -> Result<()> {
         anyhow::bail!("imported key length must be 32 bytes, got {}", key.len());
     }
 
+    let key_id = repo_key_id_from_bytes(&key);
+    manifest.repo_key_id = Some(key_id.clone());
+    write_manifest(&repo_root, &manifest)?;
+
     let wrapped = wrap_repo_key_for_all_recipients(&repo_root, &key)?;
-    write_unlock_session(&common_dir, &key, "import")?;
+    write_unlock_session(&common_dir, &key, "import", Some(key_id))?;
     println!(
         "import-repo-key: imported key and wrapped for {} recipients",
         wrapped.len()
@@ -1957,6 +2079,77 @@ fn git_add_paths(repo_root: &std::path::Path, paths: &[String], renormalize: boo
             "git add failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         );
+    }
+
+    Ok(())
+}
+
+fn git_changed_paths(
+    repo_root: &std::path::Path,
+    paths: &[String],
+    cached: bool,
+) -> Result<std::collections::BTreeSet<String>> {
+    if paths.is_empty() {
+        return Ok(std::collections::BTreeSet::new());
+    }
+
+    let mut dirty = std::collections::BTreeSet::new();
+    const CHUNK: usize = 100;
+
+    for chunk in paths.chunks(CHUNK) {
+        let mut args = vec!["diff".to_string(), "--name-only".to_string()];
+        if cached {
+            args.push("--cached".to_string());
+        }
+        args.push("--".to_string());
+        args.extend(chunk.iter().cloned());
+
+        let output = std::process::Command::new("git")
+            .current_dir(repo_root)
+            .args(args)
+            .output()
+            .context("failed to run git diff --name-only")?;
+
+        if !output.status.success() {
+            anyhow::bail!(
+                "git diff --name-only failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+
+        let text = String::from_utf8(output.stdout).context("git diff output is not utf8")?;
+        for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+            dirty.insert(line.to_string());
+        }
+    }
+
+    Ok(dirty)
+}
+
+fn protected_dirty_paths(
+    repo_root: &std::path::Path,
+    protected: &[String],
+) -> Result<std::collections::BTreeSet<String>> {
+    let mut dirty = git_changed_paths(repo_root, protected, false)?;
+    dirty.extend(git_changed_paths(repo_root, protected, true)?);
+    Ok(dirty)
+}
+
+fn scrub_protected_paths(repo_root: &std::path::Path, protected: &[String]) -> Result<()> {
+    for path in protected {
+        let blob = git_show_index_path(repo_root, path)
+            .with_context(|| format!("failed reading index blob for protected path {path}"))?;
+        let full_path = repo_root.join(path);
+        if let Some(parent) = full_path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed creating parent dir {}", parent.display()))?;
+        }
+        fs::write(&full_path, blob).with_context(|| {
+            format!(
+                "failed writing scrubbed protected file {}",
+                full_path.display()
+            )
+        })?;
     }
 
     Ok(())
@@ -2089,7 +2282,8 @@ fn cmd_rotate_key(auto_reencrypt: bool) -> Result<()> {
     let Some(previous_key) = repo_key_from_session()? else {
         anyhow::bail!("repository is locked; run `git-ssh-crypt unlock` first");
     };
-    let manifest = read_manifest(&repo_root)?;
+    let previous_key_id = repo_key_id_from_bytes(&previous_key);
+    let mut manifest = read_manifest(&repo_root)?;
 
     if manifest.require_doctor_clean_for_rotate {
         let failures = collect_doctor_failures(&repo_root, &common_dir, &manifest)?;
@@ -2110,6 +2304,7 @@ fn cmd_rotate_key(auto_reencrypt: bool) -> Result<()> {
 
     let mut key = [0_u8; 32];
     rand::rng().fill_bytes(&mut key);
+    let key_id = repo_key_id_from_bytes(&key);
     let wrapped = match wrap_repo_key_for_all_recipients(&repo_root, &key) {
         Ok(wrapped) => wrapped,
         Err(err) => {
@@ -2119,7 +2314,16 @@ fn cmd_rotate_key(auto_reencrypt: bool) -> Result<()> {
             );
         }
     };
-    write_unlock_session(&common_dir, &key, "rotated")?;
+
+    manifest.repo_key_id = Some(key_id.clone());
+    if let Err(err) = write_manifest(&repo_root, &manifest) {
+        restore_wrapped_files(&repo_root, &wrapped_snapshot)?;
+        anyhow::bail!(
+            "rotate-key failed while writing updated manifest; previous wrapped files restored: {err:#}"
+        );
+    }
+
+    write_unlock_session(&common_dir, &key, "rotated", Some(key_id.clone()))?;
 
     println!(
         "rotate-key: generated new repository key and wrapped for {} recipients",
@@ -2141,11 +2345,20 @@ fn cmd_rotate_key(auto_reencrypt: bool) -> Result<()> {
                         "wrapped-file rollback failed: {rollback_wrap_err:#}"
                     ));
                 }
-                if let Err(rollback_session_err) =
-                    write_unlock_session(&common_dir, &previous_key, "rollback")
-                {
+                if let Err(rollback_session_err) = write_unlock_session(
+                    &common_dir,
+                    &previous_key,
+                    "rollback",
+                    Some(previous_key_id.clone()),
+                ) {
                     rollback_errors
                         .push(format!("session rollback failed: {rollback_session_err:#}"));
+                }
+                manifest.repo_key_id = Some(previous_key_id.clone());
+                if let Err(manifest_rollback_err) = write_manifest(&repo_root, &manifest) {
+                    rollback_errors.push(format!(
+                        "manifest rollback failed: {manifest_rollback_err:#}"
+                    ));
                 }
                 if rollback_errors.is_empty() {
                     if let Err(restore_err) = reencrypt_with_current_session(&repo_root, &manifest)
@@ -2171,7 +2384,10 @@ fn cmd_rotate_key(auto_reencrypt: bool) -> Result<()> {
     Ok(())
 }
 
-fn repo_key_from_session_in(common_dir: &std::path::Path) -> Result<Option<Vec<u8>>> {
+fn repo_key_from_session_in(
+    common_dir: &std::path::Path,
+    manifest: Option<&RepositoryManifest>,
+) -> Result<Option<Vec<u8>>> {
     let maybe_session = read_unlock_session(common_dir)?;
     let Some(session) = maybe_session else {
         return Ok(None);
@@ -2179,12 +2395,31 @@ fn repo_key_from_session_in(common_dir: &std::path::Path) -> Result<Option<Vec<u
     let key = base64::engine::general_purpose::STANDARD_NO_PAD
         .decode(session.key_b64)
         .context("invalid session key encoding")?;
+    if key.len() != 32 {
+        anyhow::bail!("unlock session key length is {}, expected 32", key.len());
+    }
+
+    if let Some(manifest) = manifest
+        && let Some(expected) = &manifest.repo_key_id
+    {
+        let actual = repo_key_id_from_bytes(&key);
+        if &actual != expected {
+            anyhow::bail!(
+                "unlock session key does not match this worktree manifest (expected repo_key_id {}, got {}); run `git-ssh-crypt unlock`",
+                expected,
+                actual
+            );
+        }
+    }
+
     Ok(Some(key))
 }
 
 fn repo_key_from_session() -> Result<Option<Vec<u8>>> {
+    let repo_root = current_repo_root()?;
+    let manifest = read_manifest(&repo_root)?;
     let common_dir = current_common_dir()?;
-    repo_key_from_session_in(&common_dir)
+    repo_key_from_session_in(&common_dir, Some(&manifest))
 }
 
 fn git_local_config(repo_root: &std::path::Path, key: &str) -> Result<Option<String>> {
@@ -2370,6 +2605,23 @@ fn cmd_doctor(json: bool) -> Result<()> {
                 decoded.len()
             ));
         }
+
+        if let Some(expected) = &manifest.repo_key_id {
+            let actual = repo_key_id_from_bytes(&decoded);
+            if &actual != expected {
+                failures.push(format!(
+                    "unlock session repo key mismatch: expected {}, got {}",
+                    expected, actual
+                ));
+            }
+            if session.repo_key_id.as_deref() != Some(expected.as_str()) {
+                failures.push(format!(
+                    "unlock session metadata repo_key_id mismatch: expected {}, got {}",
+                    expected,
+                    session.repo_key_id.as_deref().unwrap_or("missing")
+                ));
+            }
+        }
     } else {
         if !json {
             println!("check unlock session: PASS (LOCKED)");
@@ -2385,6 +2637,7 @@ fn cmd_doctor(json: bool) -> Result<()> {
                 "common_dir": common_dir.display().to_string(),
                 "algorithm": format!("{:?}", manifest.encryption_algorithm),
                 "strict_mode": manifest.strict_mode,
+                "repo_key_id": manifest.repo_key_id,
                 "protected_patterns": manifest.protected_patterns,
                 "min_recipients": manifest.min_recipients,
                 "allowed_key_types": manifest.allowed_key_types,
@@ -2397,6 +2650,10 @@ fn cmd_doctor(json: bool) -> Result<()> {
     } else {
         println!("doctor: algorithm {:?}", manifest.encryption_algorithm);
         println!("doctor: strict_mode {}", manifest.strict_mode);
+        println!(
+            "doctor: repo_key_id {}",
+            manifest.repo_key_id.as_deref().unwrap_or("missing")
+        );
         println!(
             "doctor: protected patterns {}",
             manifest.protected_patterns.join(", ")
@@ -2797,7 +3054,7 @@ fn run_filter_command(
     input: &[u8],
 ) -> Result<Vec<u8>> {
     let manifest = read_manifest(repo_root)?;
-    let key = repo_key_from_session_in(common_dir)?;
+    let key = repo_key_from_session_in(common_dir, Some(&manifest))?;
 
     match command {
         "clean" => clean(&manifest, key.as_deref(), pathname, input),
