@@ -1132,6 +1132,12 @@ fn cmd_unlock(
 
     let mut decrypted_count = 0usize;
     if let Ok(protected) = protected_tracked_files(&repo_root) {
+        if !protected.is_empty() {
+            println!(
+                "decrypting {} protected files in working tree...",
+                protected.len()
+            );
+        }
         for path in &protected {
             let full = repo_root.join(path);
             if let Ok(content) = fs::read(&full) {
@@ -1169,7 +1175,13 @@ fn cmd_lock(force: bool, no_scrub: bool) -> Result<()> {
     let protected = if no_scrub {
         Vec::new()
     } else {
+        println!("scanning protected files...");
         let protected = protected_tracked_files(&repo_root)?;
+        if protected.is_empty() {
+            println!("no protected tracked files found");
+        } else {
+            println!("found {} protected tracked files", protected.len());
+        }
         let dirty = protected_dirty_paths(&repo_root, &protected)?;
         if !dirty.is_empty() && !force {
             let preview = dirty.iter().take(8).cloned().collect::<Vec<_>>().join(", ");
@@ -1181,27 +1193,30 @@ fn cmd_lock(force: bool, no_scrub: bool) -> Result<()> {
     };
 
     clear_unlock_session(&common_dir)?;
-    if !no_scrub && let Err(scrub_err) = scrub_protected_paths(&repo_root, &protected) {
-        if let Some(previous_session) = previous_session {
-            let rollback = base64::engine::general_purpose::STANDARD_NO_PAD
-                .decode(previous_session.key_b64)
-                .context("failed to decode previous unlock session key while rolling back lock")
-                .and_then(|key| {
-                    write_unlock_session(
-                        &common_dir,
-                        &key,
-                        &previous_session.key_source,
-                        previous_session.repo_key_id,
-                    )
-                });
+    if !no_scrub {
+        println!("scrubbing protected files in working tree...");
+        if let Err(scrub_err) = scrub_protected_paths(&repo_root, &protected) {
+            if let Some(previous_session) = previous_session {
+                let rollback = base64::engine::general_purpose::STANDARD_NO_PAD
+                    .decode(previous_session.key_b64)
+                    .context("failed to decode previous unlock session key while rolling back lock")
+                    .and_then(|key| {
+                        write_unlock_session(
+                            &common_dir,
+                            &key,
+                            &previous_session.key_source,
+                            previous_session.repo_key_id,
+                        )
+                    });
 
-            if let Err(rollback_err) = rollback {
-                anyhow::bail!(
-                    "lock scrub failed: {scrub_err:#}; failed to restore previous unlock session: {rollback_err:#}"
-                );
+                if let Err(rollback_err) = rollback {
+                    anyhow::bail!(
+                        "lock scrub failed: {scrub_err:#}; failed to restore previous unlock session: {rollback_err:#}"
+                    );
+                }
             }
+            anyhow::bail!("lock scrub failed: {scrub_err:#}; previous session restored");
         }
-        anyhow::bail!("lock scrub failed: {scrub_err:#}; previous session restored");
     }
 
     if no_scrub {
@@ -2793,27 +2808,6 @@ fn cmd_import_repo_key(input: &str) -> Result<()> {
     Ok(())
 }
 
-fn git_ls_files(repo_root: &std::path::Path) -> Result<Vec<String>> {
-    let output = std::process::Command::new("git")
-        .current_dir(repo_root)
-        .args(["ls-files", "-z"])
-        .output()
-        .context("failed to run git ls-files")?;
-    if !output.status.success() {
-        anyhow::bail!("git ls-files failed");
-    }
-
-    let mut paths = Vec::new();
-    for raw in output.stdout.split(|b| *b == 0) {
-        if raw.is_empty() {
-            continue;
-        }
-        let path = String::from_utf8(raw.to_vec()).context("non-utf8 path from git ls-files")?;
-        paths.push(path);
-    }
-    Ok(paths)
-}
-
 fn git_show_index_path(repo_root: &std::path::Path, path: &str) -> Result<Vec<u8>> {
     let output = std::process::Command::new("git")
         .current_dir(repo_root)
@@ -2952,7 +2946,40 @@ fn read_gitattributes_patterns(repo_root: &std::path::Path) -> Vec<String> {
 }
 
 fn protected_tracked_files(repo_root: &std::path::Path) -> Result<Vec<String>> {
-    let files = git_ls_files(repo_root)?;
+    // Fast path: if .gitattributes has no filter=git-sshripped patterns, there are no
+    // protected files.  This avoids piping every tracked file (potentially thousands)
+    // through git check-attr.
+    let attr_patterns = read_gitattributes_patterns(repo_root);
+    let positive_patterns: Vec<&str> = attr_patterns
+        .iter()
+        .filter(|p| !p.starts_with('!'))
+        .map(String::as_str)
+        .collect();
+    if positive_patterns.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Scope git ls-files to only the gitattributes patterns so we avoid listing the
+    // entire repository.
+    let mut cmd = std::process::Command::new("git");
+    cmd.current_dir(repo_root).args(["ls-files", "-z", "--"]);
+    for pattern in &positive_patterns {
+        cmd.arg(pattern);
+    }
+    let ls_output = cmd.output().context("failed to run git ls-files")?;
+    if !ls_output.status.success() {
+        anyhow::bail!("git ls-files failed");
+    }
+
+    let mut files = Vec::new();
+    for raw in ls_output.stdout.split(|b| *b == 0) {
+        if raw.is_empty() {
+            continue;
+        }
+        let path = String::from_utf8(raw.to_vec()).context("non-utf8 path from git ls-files")?;
+        files.push(path);
+    }
+
     if files.is_empty() {
         return Ok(Vec::new());
     }
