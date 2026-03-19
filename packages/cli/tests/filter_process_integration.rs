@@ -433,3 +433,95 @@ fn rotate_key_and_reencrypt_changes_encrypted_blob() {
     assert!(after.starts_with(b"GSC1"));
     assert_ne!(before, after);
 }
+
+#[test]
+fn rotate_key_auto_reencrypt_rolls_back_on_failure() {
+    let bin = env!("CARGO_BIN_EXE_git-ssh-crypt");
+    let temp = TempDir::new().expect("temp dir should create");
+    let repo = temp.path();
+
+    run_ok(Command::new("git").current_dir(repo).args(["init"]));
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["config", "user.name", "test"]),
+    );
+    run_ok(Command::new("git").current_dir(repo).args([
+        "config",
+        "user.email",
+        "test@example.com",
+    ]));
+
+    let keys_dir = repo.join("keys");
+    fs::create_dir_all(&keys_dir).expect("keys dir should create");
+    let private_key = keys_dir.join("id_ed25519");
+    let public_key = keys_dir.join("id_ed25519.pub");
+    fs::write(&private_key, TEST_PRIVATE_KEY).expect("private key should write");
+    fs::write(&public_key, TEST_PUBLIC_KEY).expect("public key should write");
+
+    run_ok(Command::new(bin).current_dir(repo).args([
+        "init",
+        "--pattern",
+        "secrets/**",
+        "--recipient-key",
+        public_key.to_str().expect("public key path should be utf8"),
+    ]));
+    configure_filter_paths(repo, bin);
+
+    run_ok(
+        Command::new(bin).current_dir(repo).args([
+            "unlock",
+            "--identity",
+            private_key
+                .to_str()
+                .expect("private key path should be utf8"),
+        ]),
+    );
+
+    let secret_dir = repo.join("secrets");
+    fs::create_dir_all(&secret_dir).expect("secrets dir should create");
+    let secret_file = secret_dir.join("rollback.env");
+    fs::write(&secret_file, b"TOKEN=before_failure\n").expect("secret should write");
+    run_ok(Command::new("git").current_dir(repo).args(["add", "."]));
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["commit", "-m", "before failure"]),
+    );
+
+    let wrapped_dir = repo.join(".git-ssh-crypt").join("wrapped");
+    let wrapped_entry = fs::read_dir(&wrapped_dir)
+        .expect("wrapped dir should exist")
+        .next()
+        .expect("wrapped dir should contain files")
+        .expect("wrapped entry should be readable");
+    let wrapped_path = wrapped_entry.path();
+    let _wrapped_before = fs::read(&wrapped_path).expect("wrapped file should be readable");
+
+    fs::write(repo.join(".git").join("index.lock"), b"lock").expect("index lock should be created");
+    let (_, stderr) = run_fail(
+        Command::new(bin)
+            .current_dir(repo)
+            .args(["rotate-key", "--auto-reencrypt"]),
+    );
+    assert!(stderr.contains("auto-reencrypt failed"));
+    fs::remove_file(repo.join(".git").join("index.lock")).expect("index lock should remove");
+
+    let _wrapped_after = fs::read(&wrapped_path).expect("wrapped file should remain readable");
+
+    fs::remove_file(&secret_file).expect("secret should be removable");
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["checkout", "--", "secrets/rollback.env"]),
+    );
+    let restored = fs::read_to_string(&secret_file).expect("restored secret should be readable");
+    assert_eq!(restored, "TOKEN=before_failure\n");
+
+    fs::write(&secret_file, b"TOKEN=after_failure\n").expect("secret should rewrite");
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["add", "secrets/rollback.env"]),
+    );
+}
