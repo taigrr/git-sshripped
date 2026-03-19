@@ -8,10 +8,40 @@ use std::time::Duration;
 
 use age::Decryptor;
 use age::Identity;
+use age::secrecy::SecretString;
 use age::ssh::Identity as SshIdentity;
 use anyhow::{Context, Result};
 use git_ssh_crypt_ssh_identity_models::{IdentityDescriptor, IdentitySource};
 use wait_timeout::ChildExt;
+
+#[derive(Clone, Copy)]
+struct TerminalCallbacks;
+
+impl age::Callbacks for TerminalCallbacks {
+    fn display_message(&self, message: &str) {
+        eprintln!("{message}");
+    }
+
+    fn confirm(&self, _message: &str, _yes_string: &str, _no_string: Option<&str>) -> Option<bool> {
+        None
+    }
+
+    fn request_public_string(&self, _description: &str) -> Option<String> {
+        None
+    }
+
+    fn request_passphrase(&self, description: &str) -> Option<SecretString> {
+        if let Ok(passphrase) = std::env::var("GSC_SSH_KEY_PASSPHRASE")
+            && !passphrase.is_empty()
+        {
+            return Some(SecretString::from(passphrase));
+        }
+
+        rpassword::prompt_password(format!("{description}: "))
+            .ok()
+            .map(SecretString::from)
+    }
+}
 
 #[must_use]
 pub fn default_public_key_candidates() -> Vec<PathBuf> {
@@ -211,12 +241,8 @@ pub fn unwrap_repo_key_from_wrapped_files(
         let content = std::fs::read(identity_file)
             .with_context(|| format!("failed reading identity file {}", identity_file.display()))?;
         let filename = Some(identity_file.display().to_string());
-        let identity = SshIdentity::from_buffer(std::io::Cursor::new(&content), filename).with_context(|| {
-            format!(
-                "failed parsing identity file {}; encrypted/private-key prompts are not yet supported",
-                identity_file.display()
-            )
-        })?;
+        let identity = SshIdentity::from_buffer(std::io::Cursor::new(&content), filename)
+            .with_context(|| format!("failed parsing identity file {}", identity_file.display()))?;
         identities.push((identity, identity_file.clone()));
     }
 
@@ -227,10 +253,12 @@ pub fn unwrap_repo_key_from_wrapped_files(
         for (identity, path) in &identities {
             let decryptor = Decryptor::new(&wrapped_bytes[..])
                 .with_context(|| format!("invalid wrapped key format {}", wrapped.display()))?;
-            let mut reader = match decryptor.decrypt(std::iter::once(identity as &dyn Identity)) {
-                Ok(reader) => reader,
-                Err(_) => continue,
-            };
+            let decrypt_identity = identity.clone().with_callbacks(TerminalCallbacks);
+            let mut reader =
+                match decryptor.decrypt(std::iter::once(&decrypt_identity as &dyn Identity)) {
+                    Ok(reader) => reader,
+                    Err(_) => continue,
+                };
 
             let mut key = Vec::new();
             std::io::Read::read_to_end(&mut reader, &mut key).with_context(|| {

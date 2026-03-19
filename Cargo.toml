@@ -53,6 +53,7 @@ rand = { version = "0.9.0", default-features = false, features = [
   "thread_rng",
 ] }
 reqwest = { version = "0.12.9", default-features = false }
+rpassword = { version = "7.3.1", default-features = false }
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 serde = { version = "1.0.219", default-features = false }
 serde_json = { version = "1.0.140", default-features = false }
