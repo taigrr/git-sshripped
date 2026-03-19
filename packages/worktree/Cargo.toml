@@ -1,0 +1,20 @@
+[package]
+authors = { workspace = true }
+categories = ["command-line-utilities", "development-tools"]
+description = "Worktree domain for git-ssh-crypt"
+edition = { workspace = true }
+keywords = ["git", "ssh", "worktree"]
+license = { workspace = true }
+name = "git_ssh_crypt_worktree"
+repository = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+git_ssh_crypt_worktree_models = { workspace = true }
+anyhow = { workspace = true, features = ["std"] }
+base64 = { workspace = true, features = ["std"] }
+serde_json = { workspace = true, features = ["std"] }
+
+[features]
+default = []
+fail-on-warnings = []

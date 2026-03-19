@@ -1,0 +1,21 @@
+[package]
+authors = { workspace = true }
+categories = ["command-line-utilities", "development-tools"]
+description = "Git filter domain for git-ssh-crypt"
+edition = { workspace = true }
+keywords = ["clean", "filter", "smudge"]
+license = { workspace = true }
+name = "git_ssh_crypt_filter"
+repository = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+git_ssh_crypt_encryption = { workspace = true }
+git_ssh_crypt_filter_models = { workspace = true }
+git_ssh_crypt_repository_models = { workspace = true }
+anyhow = { workspace = true, features = ["std"] }
+globset = { workspace = true }
+
+[features]
+default = []
+fail-on-warnings = []

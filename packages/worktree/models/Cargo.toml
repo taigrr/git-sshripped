@@ -1,0 +1,17 @@
+[package]
+authors = { workspace = true }
+categories = ["command-line-utilities", "development-tools"]
+description = "Worktree models for git-ssh-crypt"
+edition = { workspace = true }
+keywords = ["git", "models", "worktree"]
+license = { workspace = true }
+name = "git_ssh_crypt_worktree_models"
+repository = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+
+[features]
+default = []
+fail-on-warnings = []

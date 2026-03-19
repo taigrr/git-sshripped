@@ -1,0 +1,57 @@
+[package]
+authors = { workspace = true }
+categories = ["command-line-utilities", "development-tools"]
+description = "Umbrella crate for git-ssh-crypt"
+edition = { workspace = true }
+keywords = ["crypt", "git", "ssh"]
+license = { workspace = true }
+name = "git_ssh_crypt"
+repository = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+git_ssh_crypt_cli_models = { workspace = true, optional = true }
+git_ssh_crypt_encryption = { workspace = true, optional = true }
+git_ssh_crypt_encryption_models = { workspace = true, optional = true }
+git_ssh_crypt_filter = { workspace = true, optional = true }
+git_ssh_crypt_filter_models = { workspace = true, optional = true }
+git_ssh_crypt_recipient = { workspace = true, optional = true }
+git_ssh_crypt_recipient_models = { workspace = true, optional = true }
+git_ssh_crypt_repository = { workspace = true, optional = true }
+git_ssh_crypt_repository_models = { workspace = true, optional = true }
+git_ssh_crypt_ssh_identity = { workspace = true, optional = true }
+git_ssh_crypt_ssh_identity_models = { workspace = true, optional = true }
+git_ssh_crypt_worktree = { workspace = true, optional = true }
+git_ssh_crypt_worktree_models = { workspace = true, optional = true }
+
+[features]
+default = ["all"]
+all = [
+  "cli-models",
+  "encryption",
+  "encryption-models",
+  "filter",
+  "filter-models",
+  "recipient",
+  "recipient-models",
+  "repository",
+  "repository-models",
+  "ssh-identity",
+  "ssh-identity-models",
+  "worktree",
+  "worktree-models",
+]
+cli-models = ["dep:git_ssh_crypt_cli_models"]
+encryption = ["dep:git_ssh_crypt_encryption"]
+encryption-models = ["dep:git_ssh_crypt_encryption_models"]
+filter = ["dep:git_ssh_crypt_filter"]
+filter-models = ["dep:git_ssh_crypt_filter_models"]
+recipient = ["dep:git_ssh_crypt_recipient"]
+recipient-models = ["dep:git_ssh_crypt_recipient_models"]
+repository = ["dep:git_ssh_crypt_repository"]
+repository-models = ["dep:git_ssh_crypt_repository_models"]
+ssh-identity = ["dep:git_ssh_crypt_ssh_identity"]
+ssh-identity-models = ["dep:git_ssh_crypt_ssh_identity_models"]
+worktree = ["dep:git_ssh_crypt_worktree"]
+worktree-models = ["dep:git_ssh_crypt_worktree_models"]
+fail-on-warnings = []

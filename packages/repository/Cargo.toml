@@ -1,0 +1,19 @@
+[package]
+authors = { workspace = true }
+categories = ["command-line-utilities", "development-tools"]
+description = "Repository domain for git-ssh-crypt"
+edition = { workspace = true }
+keywords = ["config", "git", "repository", "ssh"]
+license = { workspace = true }
+name = "git_ssh_crypt_repository"
+repository = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+git_ssh_crypt_repository_models = { workspace = true }
+anyhow = { workspace = true, features = ["std"] }
+toml = { workspace = true, features = ["display", "parse"] }
+
+[features]
+default = []
+fail-on-warnings = []

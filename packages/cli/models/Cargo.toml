@@ -1,0 +1,18 @@
+[package]
+authors = { workspace = true }
+categories = ["command-line-utilities", "development-tools"]
+description = "CLI models for git-ssh-crypt"
+edition = { workspace = true }
+keywords = ["cli", "git", "models", "ssh"]
+license = { workspace = true }
+name = "git_ssh_crypt_cli_models"
+repository = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+git_ssh_crypt_encryption_models = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+
+[features]
+default = []
+fail-on-warnings = []

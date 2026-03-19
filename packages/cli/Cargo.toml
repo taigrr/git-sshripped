@@ -1,0 +1,36 @@
+[package]
+authors = { workspace = true }
+categories = ["command-line-utilities", "development-tools"]
+description = "CLI for git-ssh-crypt"
+edition = { workspace = true }
+keywords = ["cli", "git", "ssh"]
+license = { workspace = true }
+name = "git_ssh_crypt_cli"
+repository = { workspace = true }
+version = { workspace = true }
+
+[[bin]]
+name = "git-ssh-crypt"
+path = "src/main.rs"
+
+[dependencies]
+git_ssh_crypt_cli_models = { workspace = true }
+git_ssh_crypt_encryption = { workspace = true }
+git_ssh_crypt_encryption_models = { workspace = true }
+git_ssh_crypt_filter = { workspace = true }
+git_ssh_crypt_recipient = { workspace = true }
+git_ssh_crypt_recipient_models = { workspace = true }
+git_ssh_crypt_repository = { workspace = true }
+git_ssh_crypt_repository_models = { workspace = true }
+git_ssh_crypt_ssh_identity = { workspace = true }
+git_ssh_crypt_worktree = { workspace = true }
+anyhow = { workspace = true, features = ["std"] }
+base64 = { workspace = true, features = ["std"] }
+clap = { workspace = true, features = ["derive", "std"] }
+hex = { workspace = true, features = ["std"] }
+rand = { workspace = true, features = ["std"] }
+
+[features]
+default = ["crypto-aes-siv"]
+fail-on-warnings = []
+crypto-aes-siv = ["git_ssh_crypt_encryption/crypto-aes-siv"]
