@@ -14,6 +14,7 @@ BDAIWvJM0XxSYYa4bOKjAAAAEnRlc3RAZ2l0LXNzaC1jcnlwdAECAw==
 ";
 
 const TEST_PUBLIC_KEY: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE8tgzHjzlfkoAIiI1hXlQPlBDAIWvJM0XxSYYa4bOKj test@git-ssh-crypt\n";
+const TEST_RSA_PUBLIC_KEY: &str = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDKxv3k0w1R4W4zH5ZlB0PkqfYq2Qf7o7Y3w5Q6lN3J2o6b2iF7p3r7wqM8mC6nVqP4yN1iC8eR7uW1dK9h5f3j2a1mN8pQ6rT4vY7zE2sL1dM9pQ8wN2kH3jR6bV1wQ4cN7fK2zL5mP8jQ1aC4nB7dE9gH2jK5mN8pR2tW5xY8zC1vB4nM7 test-rsa@git-ssh-crypt";
 
 fn run_ok(cmd: &mut Command) -> Vec<u8> {
     let output = cmd.output().expect("command execution should succeed");
@@ -61,6 +62,26 @@ fn configure_filter_paths(repo: &Path, bin: &str) {
         "filter.git-ssh-crypt.smudge",
         &format!("{bin} smudge --path %f"),
     ]));
+}
+
+fn rewrite_manifest_line(repo: &Path, key: &str, value_literal: &str) {
+    let manifest_path = repo.join(".git-ssh-crypt").join("manifest.toml");
+    let manifest_text = fs::read_to_string(&manifest_path).expect("manifest should read");
+    let mut found = false;
+    let rewritten = manifest_text
+        .lines()
+        .map(|line| {
+            if line.trim_start().starts_with(&format!("{key} = ")) {
+                found = true;
+                format!("{key} = {value_literal}")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(found, "manifest key should exist: {key}");
+    fs::write(&manifest_path, format!("{rewritten}\n")).expect("manifest should rewrite");
 }
 
 #[test]
@@ -126,11 +147,9 @@ fn filter_process_roundtrip_with_lock_unlock() {
             .args(["show", "HEAD:secrets/app.env"]),
     );
     assert!(staged_blob.starts_with(b"GSC1"));
-    assert!(
-        !staged_blob
-            .windows(b"top_secret".len())
-            .any(|w| w == b"top_secret")
-    );
+    assert!(!staged_blob
+        .windows(b"top_secret".len())
+        .any(|w| w == b"top_secret"));
 
     run_ok(Command::new(bin).current_dir(repo).args(["lock"]));
     fs::remove_file(&secret_file).expect("secret file should be removable while locked");
@@ -606,4 +625,171 @@ fn rotate_key_wrap_failure_restores_previous_wrapped_files() {
     )
     .expect("secret should write");
     run_ok(Command::new("git").current_dir(repo).args(["add", "."]));
+}
+
+#[test]
+fn manifest_min_recipients_blocks_remove_and_revoke() {
+    let bin = env!("CARGO_BIN_EXE_git-ssh-crypt");
+    let temp = TempDir::new().expect("temp dir should create");
+    let repo = temp.path();
+
+    run_ok(Command::new("git").current_dir(repo).args(["init"]));
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["config", "user.name", "test"]),
+    );
+    run_ok(Command::new("git").current_dir(repo).args([
+        "config",
+        "user.email",
+        "test@example.com",
+    ]));
+
+    let keys_dir = repo.join("keys");
+    fs::create_dir_all(&keys_dir).expect("keys dir should create");
+    let public_key = keys_dir.join("id_ed25519.pub");
+    fs::write(&public_key, TEST_PUBLIC_KEY).expect("public key should write");
+
+    run_ok(Command::new(bin).current_dir(repo).args([
+        "init",
+        "--pattern",
+        "secrets/**",
+        "--recipient-key",
+        public_key.to_str().expect("public key path should be utf8"),
+    ]));
+
+    rewrite_manifest_line(repo, "min_recipients", "2");
+
+    let users = String::from_utf8(run_ok(
+        Command::new(bin).current_dir(repo).args(["list-users"]),
+    ))
+    .expect("list-users output should be utf8");
+    let fingerprint = users
+        .split_whitespace()
+        .next()
+        .expect("fingerprint should be present")
+        .to_string();
+
+    let (_, stderr_remove) = run_fail(Command::new(bin).current_dir(repo).args([
+        "remove-user",
+        "--fingerprint",
+        &fingerprint,
+        "--force",
+    ]));
+    assert!(stderr_remove.contains("min_recipients=2"));
+
+    let (_, stderr_revoke) = run_fail(Command::new(bin).current_dir(repo).args([
+        "revoke-user",
+        "--fingerprint",
+        &fingerprint,
+        "--force",
+    ]));
+    assert!(stderr_revoke.contains("min_recipients=2"));
+}
+
+#[test]
+fn disallowed_key_type_add_rollback_removes_new_recipient() {
+    let bin = env!("CARGO_BIN_EXE_git-ssh-crypt");
+    let temp = TempDir::new().expect("temp dir should create");
+    let repo = temp.path();
+
+    run_ok(Command::new("git").current_dir(repo).args(["init"]));
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["config", "user.name", "test"]),
+    );
+    run_ok(Command::new("git").current_dir(repo).args([
+        "config",
+        "user.email",
+        "test@example.com",
+    ]));
+
+    let keys_dir = repo.join("keys");
+    fs::create_dir_all(&keys_dir).expect("keys dir should create");
+    let public_key = keys_dir.join("id_ed25519.pub");
+    fs::write(&public_key, TEST_PUBLIC_KEY).expect("public key should write");
+
+    run_ok(Command::new(bin).current_dir(repo).args([
+        "init",
+        "--pattern",
+        "secrets/**",
+        "--recipient-key",
+        public_key.to_str().expect("public key path should be utf8"),
+    ]));
+
+    rewrite_manifest_line(repo, "allowed_key_types", "[\"ssh-ed25519\"]");
+
+    let _ = run_fail(Command::new(bin).current_dir(repo).args([
+        "add-user",
+        "--key",
+        TEST_RSA_PUBLIC_KEY,
+    ]));
+
+    let users = String::from_utf8(run_ok(
+        Command::new(bin).current_dir(repo).args(["list-users"]),
+    ))
+    .expect("list-users output should be utf8");
+    assert_eq!(users.lines().count(), 1);
+
+    let recipient_count = fs::read_dir(repo.join(".git-ssh-crypt").join("recipients"))
+        .expect("recipients dir should exist")
+        .count();
+    assert_eq!(recipient_count, 1);
+}
+
+#[test]
+fn migrate_write_report_outputs_json_file() {
+    let bin = env!("CARGO_BIN_EXE_git-ssh-crypt");
+    let temp = TempDir::new().expect("temp dir should create");
+    let repo = temp.path();
+
+    run_ok(Command::new("git").current_dir(repo).args(["init"]));
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["config", "user.name", "test"]),
+    );
+    run_ok(Command::new("git").current_dir(repo).args([
+        "config",
+        "user.email",
+        "test@example.com",
+    ]));
+
+    let keys_dir = repo.join("keys");
+    fs::create_dir_all(&keys_dir).expect("keys dir should create");
+    let public_key = keys_dir.join("id_ed25519.pub");
+    fs::write(&public_key, TEST_PUBLIC_KEY).expect("public key should write");
+
+    run_ok(Command::new(bin).current_dir(repo).args([
+        "init",
+        "--pattern",
+        "secrets/**",
+        "--recipient-key",
+        public_key.to_str().expect("public key path should be utf8"),
+    ]));
+
+    fs::write(
+        repo.join(".gitattributes"),
+        "secrets/** filter=git-crypt diff=git-crypt\n",
+    )
+    .expect("gitattributes should write");
+
+    let report_path = repo.join("migration-report.json");
+    run_ok(
+        Command::new(bin).current_dir(repo).args([
+            "migrate-from-git-crypt",
+            "--dry-run",
+            "--write-report",
+            report_path
+                .to_str()
+                .expect("report path should be valid utf8"),
+        ]),
+    );
+
+    let report_text = fs::read_to_string(&report_path).expect("report file should exist");
+    let report_json: serde_json::Value =
+        serde_json::from_str(&report_text).expect("report should parse as json");
+    assert_eq!(report_json["dry_run"], true);
+    assert_eq!(report_json["gitattributes"]["legacy_lines_replaced"], 1);
 }

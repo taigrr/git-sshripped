@@ -184,6 +184,16 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+    RevokeUser {
+        #[arg(long)]
+        fingerprint: Option<String>,
+        #[arg(long = "github-user")]
+        github_user: Option<String>,
+        #[arg(long)]
+        force: bool,
+        #[arg(long = "auto-reencrypt")]
+        auto_reencrypt: bool,
+    },
     Install,
     MigrateFromGitCrypt {
         #[arg(long)]
@@ -194,6 +204,8 @@ enum Command {
         verify: bool,
         #[arg(long)]
         json: bool,
+        #[arg(long = "write-report")]
+        write_report: Option<String>,
     },
     ExportRepoKey {
         #[arg(long)]
@@ -292,13 +304,20 @@ fn main() -> Result<()> {
         } => cmd_refresh_github_teams(org, team, dry_run, fail_on_drift, json),
         Command::AccessAudit { identities, json } => cmd_access_audit(identities, json),
         Command::RemoveUser { fingerprint, force } => cmd_remove_user(&fingerprint, force),
+        Command::RevokeUser {
+            fingerprint,
+            github_user,
+            force,
+            auto_reencrypt,
+        } => cmd_revoke_user(fingerprint, github_user, force, auto_reencrypt),
         Command::Install => cmd_install(),
         Command::MigrateFromGitCrypt {
             dry_run,
             reencrypt,
             verify,
             json,
-        } => cmd_migrate_from_git_crypt(dry_run, reencrypt, verify, json),
+            write_report,
+        } => cmd_migrate_from_git_crypt(dry_run, reencrypt, verify, json, write_report),
         Command::ExportRepoKey { out } => cmd_export_repo_key(&out),
         Command::ImportRepoKey { input } => cmd_import_repo_key(&input),
         Command::Verify { strict, json } => cmd_verify(strict, json),
@@ -1061,6 +1080,38 @@ fn cmd_remove_user(fingerprint: &str, force: bool) -> Result<()> {
     Ok(())
 }
 
+fn cmd_revoke_user(
+    fingerprint: Option<String>,
+    github_user: Option<String>,
+    force: bool,
+    auto_reencrypt: bool,
+) -> Result<()> {
+    match (fingerprint.as_deref(), github_user.as_deref()) {
+        (Some(fingerprint), None) => cmd_remove_user(fingerprint, force)?,
+        (None, Some(username)) => cmd_remove_github_user(username, force)?,
+        (Some(_), Some(_)) => {
+            anyhow::bail!("revoke-user accepts either --fingerprint or --github-user, not both")
+        }
+        (None, None) => {
+            anyhow::bail!("revoke-user requires --fingerprint <id> or --github-user <username>")
+        }
+    }
+
+    if auto_reencrypt {
+        let repo_root = current_repo_root()?;
+        let manifest = read_manifest(&repo_root)?;
+        let refreshed = reencrypt_with_current_session(&repo_root, &manifest)?;
+        println!(
+            "revoke-user: auto-reencrypt refreshed {} protected files",
+            refreshed
+        );
+    } else {
+        println!("revoke-user: run `git-ssh-crypt reencrypt` and commit to complete offboarding");
+    }
+
+    Ok(())
+}
+
 fn cmd_add_github_user(username: &str, auto_wrap: bool) -> Result<()> {
     let repo_root = current_repo_root()?;
     let manifest = read_manifest(&repo_root)?;
@@ -1702,6 +1753,7 @@ fn cmd_migrate_from_git_crypt(
     reencrypt: bool,
     verify: bool,
     json: bool,
+    write_report: Option<String>,
 ) -> Result<()> {
     let repo_root = current_repo_root()?;
     let manifest_policy = read_manifest(&repo_root).unwrap_or_default();
@@ -1774,7 +1826,7 @@ fn cmd_migrate_from_git_crypt(
         }
     }
 
-    let report = serde_json::json!({
+    let mut report = serde_json::json!({
         "ok": true,
         "dry_run": dry_run,
         "gitattributes": {
@@ -1789,6 +1841,15 @@ fn cmd_migrate_from_git_crypt(
         "verify_requested": verify,
         "verify_failures": verify_failures,
     });
+
+    if let Some(path) = write_report {
+        let report_text = format!("{}\n", serde_json::to_string_pretty(&report)?);
+        fs::write(&path, report_text)
+            .with_context(|| format!("failed to write migration report {path}"))?;
+        if let Some(object) = report.as_object_mut() {
+            object.insert("report_written_to".to_string(), serde_json::json!(path));
+        }
+    }
 
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
