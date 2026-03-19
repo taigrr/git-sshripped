@@ -130,3 +130,53 @@ fn decrypt_aes_siv(repo_key: &[u8], aad: &[u8], ciphertext: &[u8]) -> Result<Vec
 fn decrypt_aes_siv(_repo_key: &[u8], _aad: &[u8], _ciphertext: &[u8]) -> Result<Vec<u8>> {
     Err(EncryptionError::UnsupportedAlgorithm(EncryptionAlgorithm::AesSivV1).into())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    const ALGO: EncryptionAlgorithm = EncryptionAlgorithm::AesSivV1;
+    const KEY: [u8; 32] = [7_u8; 32];
+
+    proptest! {
+        #[test]
+        fn encrypt_decrypt_roundtrip(path in "[a-zA-Z0-9_/.-]{1,64}", data in proptest::collection::vec(any::<u8>(), 0..512)) {
+            let encrypted = encrypt(ALGO, &KEY, &path, &data).expect("encryption should succeed");
+            prop_assert!(encrypted.starts_with(&ENCRYPTED_MAGIC));
+            let decrypted = decrypt(&KEY, &path, &encrypted).expect("decryption should succeed");
+            prop_assert_eq!(decrypted, data);
+        }
+
+        #[test]
+        fn deterministic_encryption(path in "[a-zA-Z0-9_/.-]{1,64}", data in proptest::collection::vec(any::<u8>(), 0..512)) {
+            let a = encrypt(ALGO, &KEY, &path, &data).expect("encryption should succeed");
+            let b = encrypt(ALGO, &KEY, &path, &data).expect("encryption should succeed");
+            prop_assert_eq!(a, b);
+        }
+
+        #[test]
+        fn path_binding_rejects_wrong_path(path_a in "[a-zA-Z0-9_/.-]{1,64}", path_b in "[a-zA-Z0-9_/.-]{1,64}", data in proptest::collection::vec(any::<u8>(), 0..256)) {
+            prop_assume!(path_a != path_b);
+            let encrypted = encrypt(ALGO, &KEY, &path_a, &data).expect("encryption should succeed");
+            let wrong = decrypt(&KEY, &path_b, &encrypted);
+            prop_assert!(wrong.is_err());
+        }
+    }
+
+    #[test]
+    fn tamper_detection_rejects_modified_ciphertext() {
+        let path = "secrets/app.env";
+        let plaintext = b"TOKEN=abc\n";
+        let mut encrypted =
+            encrypt(ALGO, &KEY, path, plaintext).expect("encryption should succeed");
+        let last = encrypted
+            .len()
+            .checked_sub(1)
+            .expect("encrypted content should not be empty");
+        encrypted[last] ^= 0x01;
+
+        let decrypted = decrypt(&KEY, path, &encrypted);
+        assert!(decrypted.is_err());
+    }
+}

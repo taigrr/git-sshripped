@@ -23,3 +23,6 @@ aes-siv = { workspace = true, optional = true, features = ["std"] }
 default = ["crypto-aes-siv"]
 fail-on-warnings = []
 crypto-aes-siv = ["dep:aes-siv"]
+
+[dev-dependencies]
+proptest = { workspace = true }

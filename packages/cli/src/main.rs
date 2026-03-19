@@ -1234,3 +1234,45 @@ fn write_empty_success_list_available_blobs(writer: &mut impl Write) -> Result<(
         .context("failed flushing list_available_blobs response")?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn pkt_text_roundtrip_includes_newline_and_trims_on_read() {
+        let mut buf = Vec::new();
+        write_pkt_text_line(&mut buf, "command=clean").expect("write should succeed");
+        write_pkt_flush(&mut buf).expect("flush should succeed");
+
+        let mut cursor = Cursor::new(buf);
+        let list = read_pkt_kv_or_literal_list(&mut cursor).expect("read should succeed");
+        assert_eq!(list, vec!["command=clean".to_string()]);
+    }
+
+    #[test]
+    fn parse_kv_trims_lf_and_parses_value_with_equals() {
+        let (key, value) = parse_kv(b"pathname=secrets/a=b.env\n").expect("kv parse should work");
+        assert_eq!(key, "pathname");
+        assert_eq!(value, "secrets/a=b.env");
+    }
+
+    #[test]
+    fn handshake_with_capability_exchange_succeeds() {
+        let mut input = Vec::new();
+        write_pkt_text_line(&mut input, "git-filter-client").expect("write should succeed");
+        write_pkt_text_line(&mut input, "version=2").expect("write should succeed");
+        write_pkt_flush(&mut input).expect("flush should succeed");
+        write_pkt_text_line(&mut input, "capability=clean").expect("write should succeed");
+        write_pkt_text_line(&mut input, "capability=smudge").expect("write should succeed");
+        write_pkt_flush(&mut input).expect("flush should succeed");
+
+        let mut reader = Cursor::new(input);
+        let mut output = Vec::new();
+        let pending =
+            handle_filter_handshake(&mut reader, &mut output).expect("handshake should work");
+        assert!(pending.is_none());
+        assert!(!output.is_empty());
+    }
+}

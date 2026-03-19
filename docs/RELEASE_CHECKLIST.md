@@ -8,3 +8,4 @@
 - [ ] Recipient lifecycle validated (`add-user`, `list-users`, `remove-user`, `rewrap`)
 - [ ] Worktree lock/unlock integration tests pass
 - [ ] Security docs reviewed (`SECURITY.md`, `docs/FORMAT.md`)
+- [ ] Soak plan executed (`docs/SOAK_PLAN.md`)
