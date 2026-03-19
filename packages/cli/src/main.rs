@@ -546,6 +546,9 @@ fn classify_github_refresh_error(err: &anyhow::Error) -> &'static str {
     if text.contains("status 401") || text.contains("unauthorized") {
         return "auth_missing";
     }
+    if text.contains("requires github_token") {
+        return "auth_missing";
+    }
     if text.contains("status 403") || text.contains("forbidden") {
         return "permission_denied";
     }
@@ -1843,7 +1846,7 @@ fn cmd_refresh_github_keys(
                     entry.last_refresh_message = Some(message.clone());
                     entry.last_refreshed_unix = now_unix();
                 }
-                refresh_errors.push(format!("{}: {}", source.username, message));
+                refresh_errors.push(format!("{}({}): {}", source.username, code, message));
                 events.push(serde_json::json!({
                     "username": source.username,
                     "ok": false,
@@ -2055,7 +2058,10 @@ fn cmd_refresh_github_teams(
                     entry.last_refresh_message = Some(message.clone());
                     entry.last_refreshed_unix = now_unix();
                 }
-                refresh_errors.push(format!("{}/{}: {}", source.org, source.team, message));
+                refresh_errors.push(format!(
+                    "{}/{}({}): {}",
+                    source.org, source.team, code, message
+                ));
                 events.push(serde_json::json!({
                     "org": source.org,
                     "team": source.team,

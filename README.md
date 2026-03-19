@@ -111,3 +111,4 @@ repo key (raw bytes or 64-char hex).
 - Keep at least two valid recipients configured to reduce lockout risk.
 
 See `SECURITY.md` for the full threat model and operational guidance.
+See `docs/COMPATIBILITY.md` for git-crypt command mapping and migration notes.

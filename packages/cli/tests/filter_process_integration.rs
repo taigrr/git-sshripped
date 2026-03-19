@@ -952,6 +952,117 @@ fn config_show_includes_github_runtime_settings() {
 }
 
 #[test]
+fn refresh_github_keys_reports_auth_missing_error_code() {
+    let bin = env!("CARGO_BIN_EXE_git-ssh-crypt");
+    let temp = TempDir::new().expect("temp dir should create");
+    let repo = temp.path();
+
+    run_ok(Command::new("git").current_dir(repo).args(["init"]));
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["config", "user.name", "test"]),
+    );
+    run_ok(Command::new("git").current_dir(repo).args([
+        "config",
+        "user.email",
+        "test@example.com",
+    ]));
+
+    let keys_dir = repo.join("keys");
+    fs::create_dir_all(&keys_dir).expect("keys dir should create");
+    let public_key = keys_dir.join("id_ed25519.pub");
+    fs::write(&public_key, TEST_PUBLIC_KEY).expect("public key should write");
+
+    run_ok(Command::new(bin).current_dir(repo).args([
+        "init",
+        "--pattern",
+        "secrets/**",
+        "--recipient-key",
+        public_key.to_str().expect("public key path should be utf8"),
+    ]));
+    run_ok(
+        Command::new(bin)
+            .current_dir(repo)
+            .args(["config", "set-github-auth-mode", "token"]),
+    );
+
+    let sources = r#"[[users]]
+username = "example-user"
+url = "https://github.com/example-user.keys"
+fingerprints = []
+last_refreshed_unix = 1
+"#;
+    fs::write(
+        repo.join(".git-ssh-crypt").join("github-sources.toml"),
+        sources,
+    )
+    .expect("github sources should write");
+
+    let _ = run_fail(
+        Command::new(bin)
+            .current_dir(repo)
+            .args(["refresh-github-keys", "--json"]),
+    );
+}
+
+#[test]
+fn policy_verify_fails_when_source_staleness_exceeds_policy() {
+    let bin = env!("CARGO_BIN_EXE_git-ssh-crypt");
+    let temp = TempDir::new().expect("temp dir should create");
+    let repo = temp.path();
+
+    run_ok(Command::new("git").current_dir(repo).args(["init"]));
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["config", "user.name", "test"]),
+    );
+    run_ok(Command::new("git").current_dir(repo).args([
+        "config",
+        "user.email",
+        "test@example.com",
+    ]));
+
+    let keys_dir = repo.join("keys");
+    fs::create_dir_all(&keys_dir).expect("keys dir should create");
+    let public_key = keys_dir.join("id_ed25519.pub");
+    fs::write(&public_key, TEST_PUBLIC_KEY).expect("public key should write");
+
+    run_ok(Command::new(bin).current_dir(repo).args([
+        "init",
+        "--pattern",
+        "secrets/**",
+        "--recipient-key",
+        public_key.to_str().expect("public key path should be utf8"),
+    ]));
+    run_ok(Command::new(bin).current_dir(repo).args([
+        "policy",
+        "set",
+        "--max-source-staleness-hours",
+        "1",
+    ]));
+
+    let sources = r#"[[users]]
+username = "example-user"
+url = "https://github.com/example-user.keys"
+fingerprints = []
+last_refreshed_unix = 1
+"#;
+    fs::write(
+        repo.join(".git-ssh-crypt").join("github-sources.toml"),
+        sources,
+    )
+    .expect("github sources should write");
+
+    let _ = run_fail(
+        Command::new(bin)
+            .current_dir(repo)
+            .args(["policy", "verify", "--json"]),
+    );
+}
+
+#[test]
 fn lock_refuses_dirty_protected_files_without_force() {
     let bin = env!("CARGO_BIN_EXE_git-ssh-crypt");
     let temp = TempDir::new().expect("temp dir should create");
