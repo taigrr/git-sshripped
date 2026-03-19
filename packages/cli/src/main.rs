@@ -906,10 +906,6 @@ fn cmd_init(
     let repo_root = current_repo_root()?;
     let github_options = github_fetch_options(&repo_root)?;
 
-    if patterns.is_empty() {
-        anyhow::bail!("at least one --pattern is required (e.g. --pattern 'secrets/**')");
-    }
-
     let init = InitOptions {
         protected_patterns: patterns,
         algorithm: algorithm.into(),
