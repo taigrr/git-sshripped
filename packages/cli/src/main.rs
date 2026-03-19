@@ -155,6 +155,8 @@ enum Command {
         username: String,
         #[arg(long)]
         auto_wrap: bool,
+        #[arg(long, conflicts_with = "auto_wrap")]
+        no_auto_wrap: bool,
     },
     ListGithubUsers {
         #[arg(long)]
@@ -183,6 +185,8 @@ enum Command {
         team: String,
         #[arg(long)]
         auto_wrap: bool,
+        #[arg(long, conflicts_with = "auto_wrap")]
+        no_auto_wrap: bool,
     },
     ListGithubTeams,
     RemoveGithubTeam {
@@ -322,7 +326,8 @@ fn main() -> Result<()> {
         Command::AddGithubUser {
             username,
             auto_wrap,
-        } => cmd_add_github_user(&username, auto_wrap),
+            no_auto_wrap,
+        } => cmd_add_github_user(&username, auto_wrap || !no_auto_wrap),
         Command::ListGithubUsers { verbose } => cmd_list_github_users(verbose),
         Command::RemoveGithubUser { username, force } => cmd_remove_github_user(&username, force),
         Command::RefreshGithubKeys {
@@ -335,7 +340,8 @@ fn main() -> Result<()> {
             org,
             team,
             auto_wrap,
-        } => cmd_add_github_team(&org, &team, auto_wrap),
+            no_auto_wrap,
+        } => cmd_add_github_team(&org, &team, auto_wrap || !no_auto_wrap),
         Command::ListGithubTeams => cmd_list_github_teams(),
         Command::RemoveGithubTeam { org, team } => cmd_remove_github_team(&org, &team),
         Command::RefreshGithubTeams {
@@ -1460,9 +1466,15 @@ fn cmd_add_github_user(username: &str, auto_wrap: bool) -> Result<()> {
         .map(|recipient| recipient.fingerprint.clone())
         .collect();
 
-    if auto_wrap && let Some(key) = session_key.as_deref() {
-        for recipient in &recipients {
-            wrap_repo_key_for_recipient(&repo_root, recipient, key)?;
+    if auto_wrap {
+        if let Some(key) = session_key.as_deref() {
+            for recipient in &recipients {
+                wrap_repo_key_for_recipient(&repo_root, recipient, key)?;
+            }
+        } else {
+            println!(
+                "add-github-user: repository is locked; recipients were added but not wrapped (run unlock + rewrap)"
+            );
         }
     }
 
@@ -1571,9 +1583,15 @@ fn cmd_add_github_team(org: &str, team: &str, auto_wrap: bool) -> Result<()> {
             &recipients,
             "add-github-team",
         )?;
-        if auto_wrap && let Some(key) = session_key.as_deref() {
-            for recipient in &recipients {
-                wrap_repo_key_for_recipient(&repo_root, recipient, key)?;
+        if auto_wrap {
+            if let Some(key) = session_key.as_deref() {
+                for recipient in &recipients {
+                    wrap_repo_key_for_recipient(&repo_root, recipient, key)?;
+                }
+            } else {
+                println!(
+                    "add-github-team: repository is locked; recipients were added but not wrapped (run unlock + rewrap)"
+                );
             }
         }
         for recipient in recipients {

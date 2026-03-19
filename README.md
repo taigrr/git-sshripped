@@ -72,15 +72,17 @@ repo key (raw bytes or 64-char hex).
 - `git-ssh-crypt revoke-user --fingerprint <fp> [--auto-reencrypt] [--json]`
 - `git-ssh-crypt revoke-user --github-user <user> [--all-keys-for-user] [--auto-reencrypt] [--json]`
 - `git-ssh-crypt revoke-user --org <org> --team <team> [--auto-reencrypt] [--json]`
-- `git-ssh-crypt add-github-user --username <user> [--auto-wrap]`
+- `git-ssh-crypt add-github-user --username <user> [--no-auto-wrap]`
 - `git-ssh-crypt list-github-users [--verbose]`
 - `git-ssh-crypt remove-github-user --username <user> [--force]`
 - `git-ssh-crypt refresh-github-keys [--username <user>] [--dry-run] [--fail-on-drift] [--json]`
-- `git-ssh-crypt add-github-team --org <org> --team <team> [--auto-wrap]`
+- `git-ssh-crypt add-github-team --org <org> --team <team> [--no-auto-wrap]`
 - `git-ssh-crypt list-github-teams`
 - `git-ssh-crypt remove-github-team --org <org> --team <team>`
 - `git-ssh-crypt refresh-github-teams [--org <org>] [--team <team>] [--dry-run] [--fail-on-drift] [--json]`
 - `git-ssh-crypt access-audit [--identity <path>] [--json]`
+
+`add-github-user` and `add-github-team` auto-wrap by default when an unlock session is available. Use `--no-auto-wrap` to skip wrapping.
 
 ### Maintenance
 
