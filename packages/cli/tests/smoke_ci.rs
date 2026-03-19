@@ -25,6 +25,17 @@ fn run_ok(cmd: &mut Command) {
     );
 }
 
+fn run_fail_output(cmd: &mut Command) -> String {
+    let output = cmd.output().expect("command execution should succeed");
+    assert!(
+        !output.status.success(),
+        "command unexpectedly succeeded: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("stdout should be utf8")
+}
+
 fn run_ok_output(cmd: &mut Command) -> String {
     let output = cmd.output().expect("command execution should succeed");
     assert!(
@@ -135,6 +146,22 @@ fn ci_smoke_init_unlock_doctor_verify() {
         "--dry-run",
         "--json",
     ]));
+
+    fs::write(repo.join("legacy.secret"), "VALUE=legacy\n").expect("legacy file should write");
+    fs::write(
+        repo.join(".gitattributes"),
+        "legacy.secret filter=git-crypt diff=git-crypt\n",
+    )
+    .expect("legacy gitattributes should write");
+    run_ok(Command::new("git").current_dir(repo).args(["add", "."]));
+    let migrate_out = run_fail_output(Command::new(bin).current_dir(repo).args([
+        "migrate-from-git-crypt",
+        "--dry-run",
+        "--verify",
+        "--json",
+    ]));
+    assert!(migrate_out.contains("\"ok\": false"));
+    assert!(migrate_out.contains("legacy.secret"));
 
     run_ok(Command::new(bin).current_dir(repo).args(["install"]));
     run_ok(

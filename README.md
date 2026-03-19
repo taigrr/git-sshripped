@@ -76,7 +76,7 @@ git-ssh-crypt lock
 - `git-ssh-crypt rewrap`
 - `git-ssh-crypt rotate-key [--auto-reencrypt]`
 - `git-ssh-crypt reencrypt`
-- `git-ssh-crypt migrate-from-git-crypt`
+- `git-ssh-crypt migrate-from-git-crypt [--dry-run] [--reencrypt] [--verify] [--json]`
 - `git-ssh-crypt export-repo-key --out <path>`
 - `git-ssh-crypt import-repo-key --input <path>`
 

@@ -169,7 +169,16 @@ enum Command {
         force: bool,
     },
     Install,
-    MigrateFromGitCrypt,
+    MigrateFromGitCrypt {
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        reencrypt: bool,
+        #[arg(long)]
+        verify: bool,
+        #[arg(long)]
+        json: bool,
+    },
     ExportRepoKey {
         #[arg(long)]
         out: String,
@@ -260,7 +269,12 @@ fn main() -> Result<()> {
         Command::AccessAudit { identities, json } => cmd_access_audit(identities, json),
         Command::RemoveUser { fingerprint, force } => cmd_remove_user(&fingerprint, force),
         Command::Install => cmd_install(),
-        Command::MigrateFromGitCrypt => cmd_migrate_from_git_crypt(),
+        Command::MigrateFromGitCrypt {
+            dry_run,
+            reencrypt,
+            verify,
+            json,
+        } => cmd_migrate_from_git_crypt(dry_run, reencrypt, verify, json),
         Command::ExportRepoKey { out } => cmd_export_repo_key(&out),
         Command::ImportRepoKey { input } => cmd_import_repo_key(&input),
         Command::Verify { strict, json } => cmd_verify(strict, json),
@@ -1112,7 +1126,12 @@ fn cmd_install() -> Result<()> {
     Ok(())
 }
 
-fn cmd_migrate_from_git_crypt() -> Result<()> {
+fn cmd_migrate_from_git_crypt(
+    dry_run: bool,
+    reencrypt: bool,
+    verify: bool,
+    json: bool,
+) -> Result<()> {
     let repo_root = current_repo_root()?;
     let path = repo_root.join(".gitattributes");
     let text =
@@ -1141,16 +1160,72 @@ fn cmd_migrate_from_git_crypt() -> Result<()> {
     patterns.sort();
     patterns.dedup();
 
-    let mut manifest = read_manifest(&repo_root).unwrap_or_default();
-    manifest.protected_patterns = patterns;
-    write_manifest(&repo_root, &manifest)?;
-    install_gitattributes(&repo_root, &manifest.protected_patterns)?;
-    install_git_filters(&repo_root)?;
+    let mut manifest_before = read_manifest(&repo_root).unwrap_or_default();
+    let old_patterns = manifest_before.protected_patterns.clone();
+    manifest_before.protected_patterns = patterns;
+    let manifest_after = manifest_before;
 
-    println!(
-        "migrate-from-git-crypt: imported {} pattern(s); run unlock + reencrypt to complete data migration",
-        manifest.protected_patterns.len()
-    );
+    let imported_patterns = manifest_after.protected_patterns.len();
+    let changed_patterns = old_patterns != manifest_after.protected_patterns;
+
+    if !dry_run {
+        write_manifest(&repo_root, &manifest_after)?;
+        install_gitattributes(&repo_root, &manifest_after.protected_patterns)?;
+        install_git_filters(&repo_root)?;
+    }
+
+    let mut reencrypted_files = 0usize;
+    if reencrypt {
+        if dry_run {
+            reencrypted_files = protected_tracked_files(&repo_root, &manifest_after)?.len();
+        } else {
+            reencrypted_files = reencrypt_with_current_session(&repo_root, &manifest_after)?;
+        }
+    }
+
+    let mut verify_failures = Vec::new();
+    if verify {
+        verify_failures = verify_failures_with_manifest(&repo_root, &manifest_after)?;
+        if !verify_failures.is_empty() {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "ok": false,
+                        "dry_run": dry_run,
+                        "verify_failures": verify_failures,
+                    }))?
+                );
+            } else {
+                println!("migrate-from-git-crypt: verify failed");
+                for failure in &verify_failures {
+                    eprintln!("- {failure}");
+                }
+            }
+            anyhow::bail!("migration verification failed");
+        }
+    }
+
+    let report = serde_json::json!({
+        "ok": true,
+        "dry_run": dry_run,
+        "imported_patterns": imported_patterns,
+        "changed_patterns": changed_patterns,
+        "reencrypt_requested": reencrypt,
+        "reencrypted_files": reencrypted_files,
+        "verify_requested": verify,
+        "verify_failures": verify_failures,
+    });
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!(
+            "migrate-from-git-crypt: patterns={} changed={} dry_run={} reencrypted={} verify={}",
+            imported_patterns, changed_patterns, dry_run, reencrypted_files, verify
+        );
+    }
+
     Ok(())
 }
 
@@ -1259,20 +1334,27 @@ fn protected_tracked_files(
     Ok(protected)
 }
 
+fn verify_failures_with_manifest(
+    repo_root: &std::path::Path,
+    manifest: &RepositoryManifest,
+) -> Result<Vec<String>> {
+    let files = protected_tracked_files(repo_root, manifest)?;
+    let mut failures = Vec::new();
+    for path in files {
+        let blob = git_show_index_path(repo_root, &path)?;
+        if !blob.starts_with(&ENCRYPTED_MAGIC) {
+            failures.push(path);
+        }
+    }
+    Ok(failures)
+}
+
 fn cmd_verify(strict: bool, json: bool) -> Result<()> {
     let repo_root = current_repo_root()?;
     let manifest = read_manifest(&repo_root)?;
     let strict = strict || manifest.strict_mode;
 
-    let files = protected_tracked_files(&repo_root, &manifest)?;
-    let mut failures = Vec::new();
-
-    for path in files {
-        let blob = git_show_index_path(&repo_root, &path)?;
-        if !blob.starts_with(&ENCRYPTED_MAGIC) {
-            failures.push(path);
-        }
-    }
+    let failures = verify_failures_with_manifest(&repo_root, &manifest)?;
 
     if !failures.is_empty() {
         if json {
