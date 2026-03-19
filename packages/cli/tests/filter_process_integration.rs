@@ -1376,3 +1376,97 @@ fn unlock_with_encrypted_ssh_private_key_fails_with_wrong_env_passphrase() {
             || stderr.contains("invalid passphrase")
     );
 }
+
+#[test]
+fn negation_pattern_excludes_file_from_encryption() {
+    let bin = env!("CARGO_BIN_EXE_git-ssh-crypt");
+    let temp = TempDir::new().expect("temp dir should create");
+    let repo = temp.path();
+
+    run_ok(Command::new("git").current_dir(repo).args(["init"]));
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["config", "user.name", "test"]),
+    );
+    run_ok(Command::new("git").current_dir(repo).args([
+        "config",
+        "user.email",
+        "test@example.com",
+    ]));
+
+    let keys_dir = repo.join("keys");
+    fs::create_dir_all(&keys_dir).expect("keys dir should create");
+    let private_key = keys_dir.join("id_ed25519");
+    let public_key = keys_dir.join("id_ed25519.pub");
+    fs::write(&private_key, TEST_PRIVATE_KEY).expect("private key should write");
+    fs::write(&public_key, TEST_PUBLIC_KEY).expect("public key should write");
+
+    run_ok(Command::new(bin).current_dir(repo).args([
+        "init",
+        "--pattern",
+        "hosts/**",
+        "--pattern",
+        "!hosts/meta.nix",
+        "--recipient-key",
+        public_key.to_str().expect("public key path should be utf8"),
+    ]));
+    configure_filter_paths(repo, bin);
+
+    run_ok(
+        Command::new(bin).current_dir(repo).args([
+            "unlock",
+            "--identity",
+            private_key
+                .to_str()
+                .expect("private key path should be utf8"),
+        ]),
+    );
+
+    let hosts_dir = repo.join("hosts");
+    fs::create_dir_all(&hosts_dir).expect("hosts dir should create");
+    fs::write(hosts_dir.join("secret.nix"), b"{ key = \"private\"; }\n")
+        .expect("secret file should write");
+    fs::write(hosts_dir.join("meta.nix"), b"{ hostname = \"myhost\"; }\n")
+        .expect("meta file should write");
+
+    run_ok(Command::new("git").current_dir(repo).args(["add", "."]));
+    run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["commit", "-m", "add hosts"]),
+    );
+
+    // secret.nix should be encrypted in the committed blob
+    let secret_blob = run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["show", "HEAD:hosts/secret.nix"]),
+    );
+    assert!(
+        secret_blob.starts_with(b"GSC1"),
+        "secret.nix should be encrypted"
+    );
+
+    // meta.nix should remain plaintext in the committed blob
+    let meta_blob = run_ok(
+        Command::new("git")
+            .current_dir(repo)
+            .args(["show", "HEAD:hosts/meta.nix"]),
+    );
+    assert!(
+        !meta_blob.starts_with(b"GSC1"),
+        "meta.nix should NOT be encrypted"
+    );
+    assert_eq!(
+        String::from_utf8(meta_blob).expect("meta blob should be utf8"),
+        "{ hostname = \"myhost\"; }\n"
+    );
+
+    // verify --strict should pass (meta.nix is not counted as protected)
+    run_ok(
+        Command::new(bin)
+            .current_dir(repo)
+            .args(["verify", "--strict"]),
+    );
+}

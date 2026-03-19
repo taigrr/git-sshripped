@@ -2527,6 +2527,12 @@ fn build_gitattributes_migration_plan(text: &str) -> GitattributesMigrationPlan 
             continue;
         }
 
+        if trimmed.contains("!filter") || trimmed.contains("!diff") {
+            patterns.insert(format!("!{pattern}"));
+            output_lines.push(line.to_string());
+            continue;
+        }
+
         if trimmed.contains("git-crypt") {
             manual_intervention_lines.push(trimmed.to_string());
         }
@@ -2619,7 +2625,7 @@ fn cmd_migrate_from_git_crypt(
     let mut verify_failures = Vec::new();
     if verify {
         verify_failures = verify_failures_with_manifest(&repo_root, &manifest_after)?;
-        if !verify_failures.is_empty() {
+        if !verify_failures.is_empty() && !dry_run {
             if json {
                 println!(
                     "{}",
@@ -2659,7 +2665,8 @@ fn cmd_migrate_from_git_crypt(
         "reencrypt_requested": reencrypt,
         "reencrypted_files": reencrypted_files,
         "verify_requested": verify,
-        "verify_failures": verify_failures,
+        "verify_failures": if dry_run { vec![] } else { verify_failures.clone() },
+        "files_requiring_reencrypt": if dry_run { verify_failures.clone() } else { vec![] },
     });
 
     if let Some(path) = write_report {
@@ -3875,6 +3882,29 @@ mod tests {
         assert_eq!(plan.legacy_lines_found, 1);
         assert_eq!(plan.rewritable_lines, 0);
         assert_eq!(plan.ambiguous_lines.len(), 1);
+    }
+
+    #[test]
+    fn gitattributes_migration_collects_negation_lines() {
+        let input = "hosts/** filter=git-crypt diff=git-crypt\nhosts/meta.nix !filter !diff\n";
+        let plan = build_gitattributes_migration_plan(input);
+        assert_eq!(plan.legacy_lines_found, 1);
+        assert_eq!(plan.legacy_lines_replaced, 1);
+        assert!(plan.patterns.contains(&"hosts/**".to_string()));
+        assert!(plan.patterns.contains(&"!hosts/meta.nix".to_string()));
+        assert_eq!(plan.patterns.len(), 2);
+        assert!(
+            plan.rewritten_text
+                .contains("hosts/** filter=git-ssh-crypt diff=git-ssh-crypt")
+        );
+        assert!(plan.rewritten_text.contains("hosts/meta.nix !filter !diff"));
+    }
+
+    #[test]
+    fn gitattributes_migration_handles_only_diff_negation() {
+        let input = "data/** filter=git-crypt diff=git-crypt\ndata/public.txt !diff\n";
+        let plan = build_gitattributes_migration_plan(input);
+        assert!(plan.patterns.contains(&"!data/public.txt".to_string()));
     }
 
     #[test]

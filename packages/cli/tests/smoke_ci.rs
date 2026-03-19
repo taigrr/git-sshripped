@@ -165,13 +165,13 @@ fn ci_smoke_init_unlock_doctor_verify() {
     )
     .expect("legacy gitattributes should write");
     run_ok(Command::new("git").current_dir(repo).args(["add", "."]));
-    let migrate_out = run_fail_output(Command::new(bin).current_dir(repo).args([
+    let migrate_out = run_ok_output(Command::new(bin).current_dir(repo).args([
         "migrate-from-git-crypt",
         "--dry-run",
         "--verify",
         "--json",
     ]));
-    assert!(migrate_out.contains("\"ok\": false"));
+    assert!(migrate_out.contains("\"ok\": true"));
     assert!(migrate_out.contains("legacy.secret"));
 
     run_ok(Command::new(bin).current_dir(repo).args(["install"]));

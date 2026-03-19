@@ -100,7 +100,11 @@ pub fn install_gitattributes(repo_root: &Path, patterns: &[String]) -> Result<()
     };
 
     for pattern in patterns {
-        let line = format!("{pattern} filter=git-ssh-crypt diff=git-ssh-crypt");
+        let line = if let Some(negated) = pattern.strip_prefix('!') {
+            format!("{negated} !filter !diff")
+        } else {
+            format!("{pattern} filter=git-ssh-crypt diff=git-ssh-crypt")
+        };
         if !existing.lines().any(|item| item.trim() == line) {
             if !existing.ends_with('\n') && !existing.is_empty() {
                 existing.push('\n');
