@@ -1,5 +1,5 @@
 {
-  description = "git-ssh-crypt development environment";
+  description = "git-sshripped development environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -37,7 +37,7 @@
             ];
 
           shellHook = ''
-            echo "git-ssh-crypt development environment loaded"
+            echo "git-sshripped development environment loaded"
             echo "Available tools:"
             echo "  - cargo ($(cargo --version))"
             echo "  - rustc ($(rustc --version))"

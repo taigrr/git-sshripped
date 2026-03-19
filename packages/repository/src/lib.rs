@@ -7,13 +7,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use git_ssh_crypt_repository_models::{
+use git_sshripped_repository_models::{
     GithubSourceRegistry, RepositoryLocalConfig, RepositoryManifest,
 };
 
 #[must_use]
 pub fn metadata_dir(repo_root: &Path) -> PathBuf {
-    repo_root.join(".git-ssh-crypt")
+    repo_root.join(".git-sshripped")
 }
 
 #[must_use]
@@ -103,7 +103,7 @@ pub fn install_gitattributes(repo_root: &Path, patterns: &[String]) -> Result<()
         let line = if let Some(negated) = pattern.strip_prefix('!') {
             format!("{negated} !filter !diff")
         } else {
-            format!("{pattern} filter=git-ssh-crypt diff=git-ssh-crypt")
+            format!("{pattern} filter=git-sshripped diff=git-sshripped")
         };
         if !existing.lines().any(|item| item.trim() == line) {
             if !existing.ends_with('\n') && !existing.is_empty() {
@@ -119,30 +119,33 @@ pub fn install_gitattributes(repo_root: &Path, patterns: &[String]) -> Result<()
     Ok(())
 }
 
-pub fn install_git_filters(repo_root: &Path) -> Result<()> {
+pub fn install_git_filters(repo_root: &Path, bin: &str) -> Result<()> {
     let pairs = [
         (
-            "filter.git-ssh-crypt.process",
-            "git-ssh-crypt filter-process",
+            "filter.git-sshripped.process".to_string(),
+            format!("{bin} filter-process"),
         ),
         (
-            "filter.git-ssh-crypt.clean",
-            "git-ssh-crypt clean --path %f",
+            "filter.git-sshripped.clean".to_string(),
+            format!("{bin} clean --path %f"),
         ),
         (
-            "filter.git-ssh-crypt.smudge",
-            "git-ssh-crypt smudge --path %f",
+            "filter.git-sshripped.smudge".to_string(),
+            format!("{bin} smudge --path %f"),
         ),
-        ("filter.git-ssh-crypt.required", "true"),
         (
-            "diff.git-ssh-crypt.textconv",
-            "git-ssh-crypt diff --path %f",
+            "filter.git-sshripped.required".to_string(),
+            "true".to_string(),
+        ),
+        (
+            "diff.git-sshripped.textconv".to_string(),
+            format!("{bin} diff --path %f"),
         ),
     ];
 
-    for (key, value) in pairs {
+    for (key, value) in &pairs {
         let status = Command::new("git")
-            .args(["config", "--local", key, value])
+            .args(["config", "--local", key.as_str(), value.as_str()])
             .current_dir(repo_root)
             .status()
             .with_context(|| format!("failed to set git config {key}"))?;

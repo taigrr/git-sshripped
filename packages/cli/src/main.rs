@@ -10,10 +10,10 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use base64::Engine;
 use clap::{Parser, Subcommand, ValueEnum};
-use git_ssh_crypt_cli_models::InitOptions;
-use git_ssh_crypt_encryption_models::{ENCRYPTED_MAGIC, EncryptionAlgorithm};
-use git_ssh_crypt_filter::{clean, diff, smudge};
-use git_ssh_crypt_recipient::{
+use git_sshripped_cli_models::InitOptions;
+use git_sshripped_encryption_models::{ENCRYPTED_MAGIC, EncryptionAlgorithm};
+use git_sshripped_filter::{clean, diff, smudge};
+use git_sshripped_recipient::{
     GithubAuthMode, GithubFetchOptions, add_recipient_from_public_key,
     add_recipients_from_github_source_with_options,
     add_recipients_from_github_username_with_options, fetch_github_team_members_with_options,
@@ -21,21 +21,21 @@ use git_ssh_crypt_recipient::{
     remove_recipients_by_fingerprints, wrap_repo_key_for_all_recipients,
     wrap_repo_key_for_recipient, wrapped_store_dir,
 };
-use git_ssh_crypt_recipient_models::{RecipientKey, RecipientSource};
-use git_ssh_crypt_repository::{
+use git_sshripped_recipient_models::{RecipientKey, RecipientSource};
+use git_sshripped_repository::{
     install_git_filters, install_gitattributes, read_github_sources, read_local_config,
     read_manifest, write_github_sources, write_local_config, write_manifest,
 };
-use git_ssh_crypt_repository_models::{
+use git_sshripped_repository_models::{
     GithubSourceRegistry, GithubTeamSource, GithubUserSource, RepositoryLocalConfig,
     RepositoryManifest,
 };
-use git_ssh_crypt_ssh_identity::{
+use git_sshripped_ssh_identity::{
     default_private_key_candidates, detect_identity, private_keys_matching_agent,
     unwrap_repo_key_from_wrapped_files, unwrap_repo_key_with_agent_helper,
     well_known_public_key_paths,
 };
-use git_ssh_crypt_worktree::{
+use git_sshripped_worktree::{
     clear_unlock_session, git_common_dir, git_toplevel, read_unlock_session, write_unlock_session,
 };
 use rand::RngCore;
@@ -55,7 +55,7 @@ impl From<CliAlgorithm> for EncryptionAlgorithm {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "git-ssh-crypt")]
+#[command(name = "git-sshripped")]
 #[command(about = "Git-transparent encryption using SSH-oriented workflows")]
 struct Cli {
     #[command(subcommand)]
@@ -408,6 +408,13 @@ fn current_common_dir() -> Result<PathBuf> {
     resolve_common_dir_for_command(&cwd)
 }
 
+fn current_bin_path() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.to_str().map(ToString::to_string))
+        .unwrap_or_else(|| "git-sshripped".to_string())
+}
+
 fn wrapped_key_files(repo_root: &std::path::Path) -> Result<Vec<PathBuf>> {
     let dir = wrapped_store_dir(repo_root);
     if !dir.exists() {
@@ -509,7 +516,7 @@ fn resolve_agent_helper(repo_root: &std::path::Path) -> Result<Option<(PathBuf, 
         }
     }
 
-    if let Some(cfg_value) = git_local_config(repo_root, "git-ssh-crypt.agentHelper")? {
+    if let Some(cfg_value) = git_local_config(repo_root, "git-sshripped.agentHelper")? {
         let candidate = PathBuf::from(cfg_value);
         if is_executable(&candidate) {
             return Ok(Some((candidate, "git-config".to_string())));
@@ -525,7 +532,7 @@ fn resolve_agent_helper(repo_root: &std::path::Path) -> Result<Option<(PathBuf, 
     }
 
     for name in [
-        "git-ssh-crypt-agent-helper",
+        "git-sshripped-agent-helper",
         "age-plugin-ssh-agent",
         "age-plugin-ssh",
     ] {
@@ -579,7 +586,7 @@ fn enforce_verify_clean_for_sensitive_actions(
         return Ok(());
     }
     anyhow::bail!(
-        "{action} blocked by manifest policy require_verify_strict_clean_for_rotate_revoke=true; run `git-ssh-crypt verify --strict` and fix: {}",
+        "{action} blocked by manifest policy require_verify_strict_clean_for_rotate_revoke=true; run `git-sshripped verify --strict` and fix: {}",
         failures.join("; ")
     )
 }
@@ -743,28 +750,28 @@ fn collect_doctor_failures(
     }
     if manifest.repo_key_id.is_none() {
         failures.push(
-            "manifest repo_key_id is missing; run `git-ssh-crypt unlock` to bind current key"
+            "manifest repo_key_id is missing; run `git-sshripped unlock` to bind current key"
                 .to_string(),
         );
     }
 
-    let process_cfg = git_local_config(repo_root, "filter.git-ssh-crypt.process")?;
+    let process_cfg = git_local_config(repo_root, "filter.git-sshripped.process")?;
     if !process_cfg
         .as_ref()
         .is_some_and(|value| value.contains("filter-process"))
     {
-        failures.push("filter.git-ssh-crypt.process is missing or invalid".to_string());
+        failures.push("filter.git-sshripped.process is missing or invalid".to_string());
     }
 
-    let required_cfg = git_local_config(repo_root, "filter.git-ssh-crypt.required")?;
+    let required_cfg = git_local_config(repo_root, "filter.git-sshripped.required")?;
     if required_cfg.as_deref() != Some("true") {
-        failures.push("filter.git-ssh-crypt.required should be true".to_string());
+        failures.push("filter.git-sshripped.required should be true".to_string());
     }
 
     let gitattributes = repo_root.join(".gitattributes");
     match fs::read_to_string(&gitattributes) {
-        Ok(text) if text.contains("filter=git-ssh-crypt") => {}
-        Ok(_) => failures.push(".gitattributes has no filter=git-ssh-crypt entries".to_string()),
+        Ok(text) if text.contains("filter=git-sshripped") => {}
+        Ok(_) => failures.push(".gitattributes has no filter=git-sshripped entries".to_string()),
         Err(err) => failures.push(format!("cannot read {}: {err}", gitattributes.display())),
     }
 
@@ -922,7 +929,7 @@ fn cmd_init(
 
     write_manifest(&repo_root, &manifest)?;
     install_gitattributes(&repo_root, &patterns)?;
-    install_git_filters(&repo_root)?;
+    install_git_filters(&repo_root, &current_bin_path())?;
 
     let mut added_recipients = Vec::new();
 
@@ -973,7 +980,7 @@ fn cmd_init(
     write_manifest(&repo_root, &manifest)?;
     let wrapped = wrap_repo_key_for_all_recipients(&repo_root, &key)?;
 
-    println!("initialized git-ssh-crypt in {}", repo_root.display());
+    println!("initialized git-sshripped in {}", repo_root.display());
     println!("algorithm: {:?}", manifest.encryption_algorithm);
     println!("strict_mode: {}", manifest.strict_mode);
     println!("patterns: {}", patterns.join(", "));
@@ -1093,7 +1100,7 @@ fn cmd_unlock(
     }
 
     write_unlock_session(&common_dir, &key, &key_source, Some(key_id))?;
-    install_git_filters(&repo_root)?;
+    install_git_filters(&repo_root, &current_bin_path())?;
 
     let mut decrypted_count = 0usize;
     if let Ok(protected) = protected_tracked_files(&repo_root) {
@@ -1101,7 +1108,7 @@ fn cmd_unlock(
             let full = repo_root.join(path);
             if let Ok(content) = fs::read(&full) {
                 if content.starts_with(&ENCRYPTED_MAGIC) {
-                    match git_ssh_crypt_encryption::decrypt(&key, path, &content) {
+                    match git_sshripped_encryption::decrypt(&key, path, &content) {
                         Ok(plaintext) => {
                             if fs::write(&full, &plaintext).is_ok() {
                                 decrypted_count += 1;
@@ -1274,7 +1281,7 @@ fn cmd_status(json: bool) -> Result<()> {
             session.repo_key_id.as_deref().unwrap_or("missing")
         );
         if !session_matches_manifest {
-            println!("unlock session: stale (run `git-ssh-crypt unlock` in this worktree)");
+            println!("unlock session: stale (run `git-sshripped unlock` in this worktree)");
         }
     }
     match helper {
@@ -1369,7 +1376,7 @@ fn cmd_add_user(
         println!("wrapped repo key for {} new recipients", wrapped_count);
     } else {
         println!(
-            "warning: repository is locked; run `git-ssh-crypt unlock` then `git-ssh-crypt rewrap` to grant access"
+            "warning: repository is locked; run `git-sshripped unlock` then `git-sshripped rewrap` to grant access"
         );
     }
 
@@ -1560,7 +1567,7 @@ fn cmd_revoke_user(
             refreshed
         );
     } else {
-        println!("revoke-user: run `git-ssh-crypt reencrypt` and commit to complete offboarding");
+        println!("revoke-user: run `git-sshripped reencrypt` and commit to complete offboarding");
     }
 
     Ok(())
@@ -2304,7 +2311,7 @@ fn cmd_access_audit(identities: Vec<String>, json: bool) -> Result<()> {
 fn cmd_install() -> Result<()> {
     let repo_root = current_repo_root()?;
     let _manifest = read_manifest(&repo_root)?;
-    install_git_filters(&repo_root)?;
+    install_git_filters(&repo_root, &current_bin_path())?;
     println!("install: refreshed git filter configuration");
     Ok(())
 }
@@ -2527,7 +2534,7 @@ fn build_gitattributes_migration_plan(text: &str) -> GitattributesMigrationPlan 
 
             legacy_lines_replaced += 1;
             patterns.insert(pattern.to_string());
-            let normalized = format!("{pattern} filter=git-ssh-crypt diff=git-ssh-crypt");
+            let normalized = format!("{pattern} filter=git-sshripped diff=git-sshripped");
             if seen_lines.insert(normalized.clone()) {
                 output_lines.push(normalized);
             } else {
@@ -2536,7 +2543,7 @@ fn build_gitattributes_migration_plan(text: &str) -> GitattributesMigrationPlan 
             continue;
         }
 
-        if trimmed.contains("filter=git-ssh-crypt") {
+        if trimmed.contains("filter=git-sshripped") {
             patterns.insert(pattern.to_string());
             if seen_lines.insert(trimmed.to_string()) {
                 output_lines.push(trimmed.to_string());
@@ -2597,7 +2604,7 @@ fn cmd_migrate_from_git_crypt(
             "ok": true,
             "dry_run": dry_run,
             "noop": true,
-            "reason": "no git-crypt or git-ssh-crypt patterns found",
+            "reason": "no git-crypt or git-sshripped patterns found",
             "migration_analysis": {
                 "rewritable_lines": plan.rewritable_lines,
                 "ambiguous": plan.ambiguous_lines,
@@ -2630,7 +2637,7 @@ fn cmd_migrate_from_git_crypt(
             &repo_root,
             &plan.patterns.iter().cloned().collect::<Vec<_>>(),
         )?;
-        install_git_filters(&repo_root)?;
+        install_git_filters(&repo_root, &current_bin_path())?;
     }
 
     let mut reencrypted_files = 0usize;
@@ -2721,7 +2728,7 @@ fn cmd_migrate_from_git_crypt(
 
 fn cmd_export_repo_key(out: &str) -> Result<()> {
     let Some(key) = repo_key_from_session()? else {
-        anyhow::bail!("repository is locked; run `git-ssh-crypt unlock` first");
+        anyhow::bail!("repository is locked; run `git-sshripped unlock` first");
     };
     let encoded = hex::encode(key);
     fs::write(out, format!("{encoded}\n")).with_context(|| format!("failed to write {out}"))?;
@@ -2898,7 +2905,7 @@ fn read_gitattributes_patterns(repo_root: &std::path::Path) -> Vec<String> {
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        if trimmed.contains("filter=git-ssh-crypt") {
+        if trimmed.contains("filter=git-sshripped") {
             if let Some(pattern) = trimmed.split_whitespace().next() {
                 patterns.push(pattern.to_string());
             }
@@ -2948,7 +2955,7 @@ fn protected_tracked_files(repo_root: &std::path::Path) -> Result<Vec<String>> {
         let path = std::str::from_utf8(fields[i]).context("non-utf8 path from check-attr")?;
         let value =
             std::str::from_utf8(fields[i + 2]).context("non-utf8 attr value from check-attr")?;
-        if value == "git-ssh-crypt" {
+        if value == "git-sshripped" {
             protected.push(path.to_string());
         }
         i += 3;
@@ -2995,11 +3002,11 @@ fn cmd_verify(strict: bool, json: bool) -> Result<()> {
     }
 
     if strict {
-        let process_cfg = git_local_config(&repo_root, "filter.git-ssh-crypt.process")?;
-        let required_cfg = git_local_config(&repo_root, "filter.git-ssh-crypt.required")?;
+        let process_cfg = git_local_config(&repo_root, "filter.git-sshripped.process")?;
+        let required_cfg = git_local_config(&repo_root, "filter.git-sshripped.required")?;
         if process_cfg.is_none() || required_cfg.as_deref() != Some("true") {
             anyhow::bail!(
-                "strict verify failed: filter.git-ssh-crypt.process and required=true must be configured"
+                "strict verify failed: filter.git-sshripped.process and required=true must be configured"
             );
         }
     }
@@ -3019,7 +3026,7 @@ fn cmd_verify(strict: bool, json: bool) -> Result<()> {
 fn cmd_rewrap() -> Result<()> {
     let repo_root = current_repo_root()?;
     let Some(key) = repo_key_from_session()? else {
-        anyhow::bail!("repository is locked; run `git-ssh-crypt unlock` first");
+        anyhow::bail!("repository is locked; run `git-sshripped unlock` first");
     };
     let wrapped = wrap_repo_key_for_all_recipients(&repo_root, &key)?;
     println!("rewrapped repository key for {} recipients", wrapped.len());
@@ -3028,7 +3035,7 @@ fn cmd_rewrap() -> Result<()> {
 
 fn reencrypt_with_current_session(repo_root: &std::path::Path) -> Result<usize> {
     if repo_key_from_session()?.is_none() {
-        anyhow::bail!("repository is locked; run `git-ssh-crypt unlock` first");
+        anyhow::bail!("repository is locked; run `git-sshripped unlock` first");
     }
 
     let protected = protected_tracked_files(repo_root)?;
@@ -3061,7 +3068,7 @@ fn cmd_rotate_key(auto_reencrypt: bool) -> Result<()> {
     let repo_root = current_repo_root()?;
     let common_dir = current_common_dir()?;
     let Some(previous_key) = repo_key_from_session()? else {
-        anyhow::bail!("repository is locked; run `git-ssh-crypt unlock` first");
+        anyhow::bail!("repository is locked; run `git-sshripped unlock` first");
     };
     let previous_key_id = repo_key_id_from_bytes(&previous_key);
     let mut manifest = read_manifest(&repo_root)?;
@@ -3070,7 +3077,7 @@ fn cmd_rotate_key(auto_reencrypt: bool) -> Result<()> {
         let failures = collect_doctor_failures(&repo_root, &common_dir, &manifest)?;
         if !failures.is_empty() {
             anyhow::bail!(
-                "rotate-key blocked by manifest policy require_doctor_clean_for_rotate=true; run `git-ssh-crypt doctor` and fix: {}",
+                "rotate-key blocked by manifest policy require_doctor_clean_for_rotate=true; run `git-sshripped doctor` and fix: {}",
                 failures.join("; ")
             );
         }
@@ -3159,7 +3166,7 @@ fn cmd_rotate_key(auto_reencrypt: bool) -> Result<()> {
             }
         }
     } else {
-        println!("rotate-key: run `git-ssh-crypt reencrypt` and commit to complete rotation");
+        println!("rotate-key: run `git-sshripped reencrypt` and commit to complete rotation");
     }
 
     Ok(())
@@ -3186,7 +3193,7 @@ fn repo_key_from_session_in(
         let actual = repo_key_id_from_bytes(&key);
         if &actual != expected {
             anyhow::bail!(
-                "unlock session key does not match this worktree manifest (expected repo_key_id {}, got {}); run `git-ssh-crypt unlock`",
+                "unlock session key does not match this worktree manifest (expected repo_key_id {}, got {}); run `git-sshripped unlock`",
                 expected,
                 actual
             );
@@ -3254,7 +3261,7 @@ fn cmd_doctor(json: bool) -> Result<()> {
         failures.push("manifest allowed_key_types cannot be empty".to_string());
     }
 
-    let process_cfg = git_local_config(&repo_root, "filter.git-ssh-crypt.process")?;
+    let process_cfg = git_local_config(&repo_root, "filter.git-sshripped.process")?;
     if process_cfg
         .as_ref()
         .is_some_and(|value| value.contains("filter-process"))
@@ -3266,10 +3273,10 @@ fn cmd_doctor(json: bool) -> Result<()> {
         if !json {
             println!("check filter.process: FAIL");
         }
-        failures.push("filter.git-ssh-crypt.process is missing or invalid".to_string());
+        failures.push("filter.git-sshripped.process is missing or invalid".to_string());
     }
 
-    let required_cfg = git_local_config(&repo_root, "filter.git-ssh-crypt.required")?;
+    let required_cfg = git_local_config(&repo_root, "filter.git-sshripped.required")?;
     if required_cfg.as_deref() == Some("true") {
         if !json {
             println!("check filter.required: PASS");
@@ -3278,12 +3285,12 @@ fn cmd_doctor(json: bool) -> Result<()> {
         if !json {
             println!("check filter.required: FAIL");
         }
-        failures.push("filter.git-ssh-crypt.required should be true".to_string());
+        failures.push("filter.git-sshripped.required should be true".to_string());
     }
 
     let gitattributes = repo_root.join(".gitattributes");
     match fs::read_to_string(&gitattributes) {
-        Ok(text) if text.contains("filter=git-ssh-crypt") => {
+        Ok(text) if text.contains("filter=git-sshripped") => {
             if !json {
                 println!("check gitattributes wiring: PASS");
             }
@@ -3292,7 +3299,7 @@ fn cmd_doctor(json: bool) -> Result<()> {
             if !json {
                 println!("check gitattributes wiring: FAIL");
             }
-            failures.push(".gitattributes has no filter=git-ssh-crypt entries".to_string());
+            failures.push(".gitattributes has no filter=git-sshripped entries".to_string());
         }
         Err(err) => {
             if !json {
@@ -3943,7 +3950,7 @@ mod tests {
         assert!(plan.ambiguous_lines.is_empty());
         assert!(
             plan.rewritten_text
-                .contains("secret.env filter=git-ssh-crypt diff=git-ssh-crypt")
+                .contains("secret.env filter=git-sshripped diff=git-sshripped")
         );
         assert!(!plan.rewritten_text.contains("filter=git-crypt"));
         assert_eq!(plan.patterns, vec!["secret.env".to_string()]);
@@ -3969,7 +3976,7 @@ mod tests {
         assert_eq!(plan.patterns.len(), 2);
         assert!(
             plan.rewritten_text
-                .contains("hosts/** filter=git-ssh-crypt diff=git-ssh-crypt")
+                .contains("hosts/** filter=git-sshripped diff=git-sshripped")
         );
         assert!(plan.rewritten_text.contains("hosts/meta.nix !filter !diff"));
     }

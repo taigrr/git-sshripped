@@ -1,0 +1,57 @@
+[package]
+authors = { workspace = true }
+categories = ["command-line-utilities", "development-tools"]
+description = "Umbrella crate for git-sshripped"
+edition = { workspace = true }
+keywords = ["crypt", "git", "ssh"]
+license = { workspace = true }
+name = "git_sshripped"
+repository = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+git_sshripped_cli_models = { workspace = true, optional = true }
+git_sshripped_encryption = { workspace = true, optional = true }
+git_sshripped_encryption_models = { workspace = true, optional = true }
+git_sshripped_filter = { workspace = true, optional = true }
+git_sshripped_filter_models = { workspace = true, optional = true }
+git_sshripped_recipient = { workspace = true, optional = true }
+git_sshripped_recipient_models = { workspace = true, optional = true }
+git_sshripped_repository = { workspace = true, optional = true }
+git_sshripped_repository_models = { workspace = true, optional = true }
+git_sshripped_ssh_identity = { workspace = true, optional = true }
+git_sshripped_ssh_identity_models = { workspace = true, optional = true }
+git_sshripped_worktree = { workspace = true, optional = true }
+git_sshripped_worktree_models = { workspace = true, optional = true }
+
+[features]
+default = ["all"]
+all = [
+  "cli-models",
+  "encryption",
+  "encryption-models",
+  "filter",
+  "filter-models",
+  "recipient",
+  "recipient-models",
+  "repository",
+  "repository-models",
+  "ssh-identity",
+  "ssh-identity-models",
+  "worktree",
+  "worktree-models",
+]
+cli-models = ["dep:git_sshripped_cli_models"]
+encryption = ["dep:git_sshripped_encryption"]
+encryption-models = ["dep:git_sshripped_encryption_models"]
+filter = ["dep:git_sshripped_filter"]
+filter-models = ["dep:git_sshripped_filter_models"]
+recipient = ["dep:git_sshripped_recipient"]
+recipient-models = ["dep:git_sshripped_recipient_models"]
+repository = ["dep:git_sshripped_repository"]
+repository-models = ["dep:git_sshripped_repository_models"]
+ssh-identity = ["dep:git_sshripped_ssh_identity"]
+ssh-identity-models = ["dep:git_sshripped_ssh_identity_models"]
+worktree = ["dep:git_sshripped_worktree"]
+worktree-models = ["dep:git_sshripped_worktree_models"]
+fail-on-warnings = []

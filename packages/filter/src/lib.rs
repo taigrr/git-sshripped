@@ -3,8 +3,8 @@
 #![allow(clippy::multiple_crate_versions)]
 
 use anyhow::{Result, bail};
-use git_ssh_crypt_encryption::{decrypt, encrypt, is_encrypted};
-use git_ssh_crypt_encryption_models::EncryptionAlgorithm;
+use git_sshripped_encryption::{decrypt, encrypt, is_encrypted};
+use git_sshripped_encryption_models::EncryptionAlgorithm;
 
 pub fn clean(
     algorithm: EncryptionAlgorithm,
@@ -18,7 +18,7 @@ pub fn clean(
 
     let key = repo_key.ok_or_else(|| {
         anyhow::anyhow!(
-            "repository is locked and cannot encrypt protected file '{}'; run git-ssh-crypt unlock",
+            "repository is locked and cannot encrypt protected file '{}'; run git-sshripped unlock",
             path
         )
     })?;

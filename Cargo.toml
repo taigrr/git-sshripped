@@ -1,6 +1,6 @@
 [workspace]
 members = [
-  "packages/git_ssh_crypt",
+  "packages/git_sshripped",
   "packages/cli",
   "packages/cli/models",
   "packages/repository",
@@ -22,25 +22,25 @@ resolver = "2"
 authors = ["Braden Steffaniak"]
 edition = "2024"
 license = "MPL-2.0"
-repository = "https://github.com/BSteffaniak/git-ssh-crypt"
+repository = "https://github.com/BSteffaniak/git-sshripped"
 version = "0.1.0-alpha.0"
 
 [workspace.dependencies]
-age = { version = "0.11.1", default-features = false, features = ["ssh"] }
-git_ssh_crypt_cli_models = { version = "0.1.0-alpha.0", path = "packages/cli/models" }
-git_ssh_crypt_encryption = { version = "0.1.0-alpha.0", path = "packages/encryption", default-features = false }
-git_ssh_crypt_encryption_models = { version = "0.1.0-alpha.0", path = "packages/encryption/models" }
-git_ssh_crypt_filter = { version = "0.1.0-alpha.0", path = "packages/filter", default-features = false }
-git_ssh_crypt_filter_models = { version = "0.1.0-alpha.0", path = "packages/filter/models" }
-git_ssh_crypt_recipient = { version = "0.1.0-alpha.0", path = "packages/recipient", default-features = false }
-git_ssh_crypt_recipient_models = { version = "0.1.0-alpha.0", path = "packages/recipient/models" }
-git_ssh_crypt_repository = { version = "0.1.0-alpha.0", path = "packages/repository", default-features = false }
-git_ssh_crypt_repository_models = { version = "0.1.0-alpha.0", path = "packages/repository/models" }
-git_ssh_crypt_ssh_identity = { version = "0.1.0-alpha.0", path = "packages/ssh_identity", default-features = false }
-git_ssh_crypt_ssh_identity_models = { version = "0.1.0-alpha.0", path = "packages/ssh_identity/models" }
-git_ssh_crypt_worktree = { version = "0.1.0-alpha.0", path = "packages/worktree", default-features = false }
-git_ssh_crypt_worktree_models = { version = "0.1.0-alpha.0", path = "packages/worktree/models" }
+git_sshripped_cli_models = { version = "0.1.0-alpha.0", path = "packages/cli/models" }
+git_sshripped_encryption = { version = "0.1.0-alpha.0", path = "packages/encryption", default-features = false }
+git_sshripped_encryption_models = { version = "0.1.0-alpha.0", path = "packages/encryption/models" }
+git_sshripped_filter = { version = "0.1.0-alpha.0", path = "packages/filter", default-features = false }
+git_sshripped_filter_models = { version = "0.1.0-alpha.0", path = "packages/filter/models" }
+git_sshripped_recipient = { version = "0.1.0-alpha.0", path = "packages/recipient", default-features = false }
+git_sshripped_recipient_models = { version = "0.1.0-alpha.0", path = "packages/recipient/models" }
+git_sshripped_repository = { version = "0.1.0-alpha.0", path = "packages/repository", default-features = false }
+git_sshripped_repository_models = { version = "0.1.0-alpha.0", path = "packages/repository/models" }
+git_sshripped_ssh_identity = { version = "0.1.0-alpha.0", path = "packages/ssh_identity", default-features = false }
+git_sshripped_ssh_identity_models = { version = "0.1.0-alpha.0", path = "packages/ssh_identity/models" }
+git_sshripped_worktree = { version = "0.1.0-alpha.0", path = "packages/worktree", default-features = false }
+git_sshripped_worktree_models = { version = "0.1.0-alpha.0", path = "packages/worktree/models" }
 
+age = { version = "0.11.1", default-features = false, features = ["ssh"] }
 anyhow = { version = "1.0.98", default-features = false }
 base64 = { version = "0.22.1", default-features = false }
 clap = { version = "4.5.40", default-features = false }

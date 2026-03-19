@@ -1,5 +1,5 @@
 [package]
-name = "git_ssh_crypt_fuzz"
+name = "git_sshripped_fuzz"
 version = "0.0.0"
 publish = false
 edition = "2024"
@@ -10,8 +10,8 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 anyhow = { workspace = true, features = ["std"] }
-git_ssh_crypt_encryption = { workspace = true }
-git_ssh_crypt_encryption_models = { workspace = true }
+git_sshripped_encryption = { workspace = true }
+git_sshripped_encryption_models = { workspace = true }
 
 [[bin]]
 name = "encryption_decrypt"

@@ -7,8 +7,8 @@
 
 ## Required checks per run
 
-1. `git-ssh-crypt doctor`
-2. `git-ssh-crypt verify --strict`
+1. `git-sshripped doctor`
+2. `git-sshripped verify --strict`
 3. `cargo test`
 
 ## Scenarios

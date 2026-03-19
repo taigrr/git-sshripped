@@ -11,7 +11,7 @@ use age::Identity;
 use age::secrecy::SecretString;
 use age::ssh::Identity as SshIdentity;
 use anyhow::{Context, Result};
-use git_ssh_crypt_ssh_identity_models::{IdentityDescriptor, IdentitySource};
+use git_sshripped_ssh_identity_models::{IdentityDescriptor, IdentitySource};
 use wait_timeout::ChildExt;
 
 #[derive(Clone, Copy)]

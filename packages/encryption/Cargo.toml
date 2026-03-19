@@ -1,16 +1,16 @@
 [package]
 authors = { workspace = true }
 categories = ["command-line-utilities", "development-tools"]
-description = "Encryption domain for git-ssh-crypt"
+description = "Encryption domain for git-sshripped"
 edition = { workspace = true }
 keywords = ["crypt", "deterministic", "encryption", "git", "ssh"]
 license = { workspace = true }
-name = "git_ssh_crypt_encryption"
+name = "git_sshripped_encryption"
 repository = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-git_ssh_crypt_encryption_models = { workspace = true }
+git_sshripped_encryption_models = { workspace = true }
 anyhow = { workspace = true, features = ["std"] }
 hkdf = { workspace = true }
 sha2 = { workspace = true }

@@ -1,6 +1,6 @@
 #![no_main]
 
-use git_ssh_crypt_encryption::decrypt;
+use git_sshripped_encryption::decrypt;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {

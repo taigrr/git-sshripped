@@ -1,29 +1,29 @@
 [package]
 authors = { workspace = true }
 categories = ["command-line-utilities", "development-tools"]
-description = "CLI for git-ssh-crypt"
+description = "CLI for git-sshripped"
 edition = { workspace = true }
 keywords = ["cli", "git", "ssh"]
 license = { workspace = true }
-name = "git_ssh_crypt_cli"
+name = "git_sshripped_cli"
 repository = { workspace = true }
 version = { workspace = true }
 
 [[bin]]
-name = "git-ssh-crypt"
+name = "git-sshripped"
 path = "src/main.rs"
 
 [dependencies]
-git_ssh_crypt_cli_models = { workspace = true }
-git_ssh_crypt_encryption = { workspace = true }
-git_ssh_crypt_encryption_models = { workspace = true }
-git_ssh_crypt_filter = { workspace = true }
-git_ssh_crypt_recipient = { workspace = true }
-git_ssh_crypt_recipient_models = { workspace = true }
-git_ssh_crypt_repository = { workspace = true }
-git_ssh_crypt_repository_models = { workspace = true }
-git_ssh_crypt_ssh_identity = { workspace = true }
-git_ssh_crypt_worktree = { workspace = true }
+git_sshripped_cli_models = { workspace = true }
+git_sshripped_encryption = { workspace = true }
+git_sshripped_encryption_models = { workspace = true }
+git_sshripped_filter = { workspace = true }
+git_sshripped_recipient = { workspace = true }
+git_sshripped_recipient_models = { workspace = true }
+git_sshripped_repository = { workspace = true }
+git_sshripped_repository_models = { workspace = true }
+git_sshripped_ssh_identity = { workspace = true }
+git_sshripped_worktree = { workspace = true }
 anyhow = { workspace = true, features = ["std"] }
 base64 = { workspace = true, features = ["std"] }
 clap = { workspace = true, features = ["derive", "std"] }
@@ -35,7 +35,7 @@ sha2 = { workspace = true }
 [features]
 default = ["crypto-aes-siv"]
 fail-on-warnings = []
-crypto-aes-siv = ["git_ssh_crypt_encryption/crypto-aes-siv"]
+crypto-aes-siv = ["git_sshripped_encryption/crypto-aes-siv"]
 
 [dev-dependencies]
 proptest = { workspace = true }

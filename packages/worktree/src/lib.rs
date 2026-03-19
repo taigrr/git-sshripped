@@ -10,7 +10,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result};
 use base64::Engine;
-use git_ssh_crypt_worktree_models::UnlockSession;
+use git_sshripped_worktree_models::UnlockSession;
 
 fn git_rev_parse(cwd: &Path, arg: &str) -> Result<PathBuf> {
     let output = Command::new("git")
@@ -41,7 +41,7 @@ pub fn git_toplevel(cwd: &Path) -> Result<PathBuf> {
 #[must_use]
 pub fn session_file(common_dir: &Path) -> PathBuf {
     common_dir
-        .join("git-ssh-crypt")
+        .join("git-sshripped")
         .join("session")
         .join("unlock.json")
 }

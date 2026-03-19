@@ -1,23 +1,23 @@
 # git-crypt Compatibility Map
 
-This maps common `git-crypt` workflows to `git-ssh-crypt` equivalents.
+This maps common `git-crypt` workflows to `git-sshripped` equivalents.
 
 ## Core workflow
 
-- `git-crypt init` -> `git-ssh-crypt init --pattern "secrets/**" --recipient-key <pubkey>`
-- `git-crypt unlock` -> `git-ssh-crypt unlock --identity <private-key>`
-- `git-crypt lock` -> `git-ssh-crypt lock`
+- `git-crypt init` -> `git-sshripped init --pattern "secrets/**" --recipient-key <pubkey>`
+- `git-crypt unlock` -> `git-sshripped unlock --identity <private-key>`
+- `git-crypt lock` -> `git-sshripped lock`
 
 ## Access management
 
-- `git-crypt add-gpg-user <key>` -> `git-ssh-crypt add-user --key <ssh-pubkey|path>`
-- `git-crypt` key removal -> `git-ssh-crypt remove-user --fingerprint <fp>`
-- `git-crypt` offboarding workflow -> `git-ssh-crypt revoke-user ... [--auto-reencrypt]`
+- `git-crypt add-gpg-user <key>` -> `git-sshripped add-user --key <ssh-pubkey|path>`
+- `git-crypt` key removal -> `git-sshripped remove-user --fingerprint <fp>`
+- `git-crypt` offboarding workflow -> `git-sshripped revoke-user ... [--auto-reencrypt]`
 
 ## Rotation and migration
 
-- Rotate and re-encrypt history tip -> `git-ssh-crypt rotate-key --auto-reencrypt`
-- Migrate attributes -> `git-ssh-crypt migrate-from-git-crypt --dry-run --verify --write-report <file>`
+- Rotate and re-encrypt history tip -> `git-sshripped rotate-key --auto-reencrypt`
+- Migrate attributes -> `git-sshripped migrate-from-git-crypt --dry-run --verify --write-report <file>`
 
 ## SSH/GitHub-native additions
 

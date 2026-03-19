@@ -1,16 +1,16 @@
 [package]
 authors = { workspace = true }
 categories = ["command-line-utilities", "development-tools"]
-description = "SSH identity domain for git-ssh-crypt"
+description = "SSH identity domain for git-sshripped"
 edition = { workspace = true }
 keywords = ["identity", "ssh"]
 license = { workspace = true }
-name = "git_ssh_crypt_ssh_identity"
+name = "git_sshripped_ssh_identity"
 repository = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-git_ssh_crypt_ssh_identity_models = { workspace = true }
+git_sshripped_ssh_identity_models = { workspace = true }
 age = { workspace = true }
 anyhow = { workspace = true, features = ["std"] }
 dirs = { workspace = true }

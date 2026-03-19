@@ -12,7 +12,7 @@ BDAIWvJM0XxSYYa4bOKjAAAAEnRlc3RAZ2l0LXNzaC1jcnlwdAECAw==
 -----END OPENSSH PRIVATE KEY-----
 ";
 
-const TEST_PUBLIC_KEY: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE8tgzHjzlfkoAIiI1hXlQPlBDAIWvJM0XxSYYa4bOKj test@git-ssh-crypt\n";
+const TEST_PUBLIC_KEY: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE8tgzHjzlfkoAIiI1hXlQPlBDAIWvJM0XxSYYa4bOKj test@git-sshripped\n";
 
 fn run_ok(cmd: &mut Command) {
     let output = cmd.output().expect("command execution should succeed");
@@ -48,30 +48,9 @@ fn run_ok_output(cmd: &mut Command) -> String {
     String::from_utf8(output.stdout).expect("stdout should be utf8")
 }
 
-fn configure_filter_paths(repo: &std::path::Path, bin: &str) {
-    run_ok(Command::new("git").current_dir(repo).args([
-        "config",
-        "--local",
-        "filter.git-ssh-crypt.process",
-        &format!("{bin} filter-process"),
-    ]));
-    run_ok(Command::new("git").current_dir(repo).args([
-        "config",
-        "--local",
-        "filter.git-ssh-crypt.clean",
-        &format!("{bin} clean --path %f"),
-    ]));
-    run_ok(Command::new("git").current_dir(repo).args([
-        "config",
-        "--local",
-        "filter.git-ssh-crypt.smudge",
-        &format!("{bin} smudge --path %f"),
-    ]));
-}
-
 #[test]
 fn ci_smoke_init_unlock_doctor_verify() {
-    let bin = env!("CARGO_BIN_EXE_git-ssh-crypt");
+    let bin = env!("CARGO_BIN_EXE_git-sshripped");
     let temp = TempDir::new().expect("temp dir should create");
     let repo = temp.path();
 
@@ -102,7 +81,6 @@ fn ci_smoke_init_unlock_doctor_verify() {
         "--recipient-key",
         public_key.to_str().expect("public key path should be utf8"),
     ]));
-    configure_filter_paths(repo, bin);
 
     run_ok(
         Command::new(bin).current_dir(repo).args([

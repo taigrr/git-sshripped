@@ -1,11 +1,11 @@
 [package]
 authors = { workspace = true }
 categories = ["command-line-utilities", "development-tools"]
-description = "Filter models for git-ssh-crypt"
+description = "Filter models for git-sshripped"
 edition = { workspace = true }
 keywords = ["filter", "git", "models"]
 license = { workspace = true }
-name = "git_ssh_crypt_filter_models"
+name = "git_sshripped_filter_models"
 repository = { workspace = true }
 version = { workspace = true }
 

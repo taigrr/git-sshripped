@@ -1,18 +1,18 @@
 [package]
 authors = { workspace = true }
 categories = ["command-line-utilities", "development-tools"]
-description = "Git filter domain for git-ssh-crypt"
+description = "Git filter domain for git-sshripped"
 edition = { workspace = true }
 keywords = ["clean", "filter", "smudge"]
 license = { workspace = true }
-name = "git_ssh_crypt_filter"
+name = "git_sshripped_filter"
 repository = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-git_ssh_crypt_encryption = { workspace = true }
-git_ssh_crypt_encryption_models = { workspace = true }
-git_ssh_crypt_filter_models = { workspace = true }
+git_sshripped_encryption = { workspace = true }
+git_sshripped_encryption_models = { workspace = true }
+git_sshripped_filter_models = { workspace = true }
 anyhow = { workspace = true, features = ["std"] }
 
 [features]

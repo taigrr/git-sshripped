@@ -34,7 +34,7 @@ jobs:
         run: cargo test
 
       - name: Smoke (doctor + verify)
-        run: cargo test -p git_ssh_crypt_cli --test smoke_ci
+        run: cargo test -p git_sshripped_cli --test smoke_ci
 
   security:
     runs-on: ubuntu-latest

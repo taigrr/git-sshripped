@@ -1,6 +1,6 @@
-# git-ssh-crypt
+# git-sshripped
 
-`git-ssh-crypt` keeps selected files encrypted in Git while still letting you work with plaintext when the repository is unlocked.
+`git-sshripped` keeps selected files encrypted in Git while still letting you work with plaintext when the repository is unlocked.
 
 It is for teams that already use SSH keys and want encryption to fit normal Git usage instead of adding a separate manual workflow.
 
@@ -25,10 +25,10 @@ Many alternatives fall short because they require manual encrypt/decrypt steps, 
 
 ```bash
 # in an existing Git repository
-git-ssh-crypt init --strict --pattern "secrets/**" --recipient-key ~/.ssh/id_ed25519.pub
+git-sshripped init --strict --pattern "secrets/**" --recipient-key ~/.ssh/id_ed25519.pub
 
 # unlock using your SSH private key
-git-ssh-crypt unlock --identity ~/.ssh/id_ed25519
+git-sshripped unlock --identity ~/.ssh/id_ed25519
 
 # work normally
 mkdir -p secrets
@@ -36,73 +36,73 @@ printf 'API_TOKEN=example\n' > secrets/app.env
 git add secrets/app.env
 
 # validate setup
-git-ssh-crypt doctor
-git-ssh-crypt verify --strict
+git-sshripped doctor
+git-sshripped verify --strict
 
 # lock when done
-git-ssh-crypt lock
+git-sshripped lock
 ```
 
 ## Common commands
 
 ### Daily use
 
-- `git-ssh-crypt unlock [--identity <path>] [--github-user <user>] [--prefer-agent] [--no-agent]`
+- `git-sshripped unlock [--identity <path>] [--github-user <user>] [--prefer-agent] [--no-agent]`
 
 `unlock` auto-resolves an agent helper in this order:
 1) `GSC_SSH_AGENT_HELPER` env var
-2) `git config --local git-ssh-crypt.agentHelper`
-3) `.git-ssh-crypt/config.toml` (`agent_helper`)
-4) PATH search (`git-ssh-crypt-agent-helper`, `age-plugin-ssh-agent`, `age-plugin-ssh`)
+2) `git config --local git-sshripped.agentHelper`
+3) `.git-sshripped/config.toml` (`agent_helper`)
+4) PATH search (`git-sshripped-agent-helper`, `age-plugin-ssh-agent`, `age-plugin-ssh`)
 
 Helper contract: `<helper> <wrapped-key-file>` -> stdout with decrypted 32-byte
 repo key (raw bytes or 64-char hex).
-- `git-ssh-crypt lock`
-- `git-ssh-crypt status`
-- `git-ssh-crypt doctor [--json]`
-- `git-ssh-crypt verify [--strict] [--json]`
+- `git-sshripped lock`
+- `git-sshripped status`
+- `git-sshripped doctor [--json]`
+- `git-sshripped verify [--strict] [--json]`
 
 ### User and access management
 
-- `git-ssh-crypt add-user --key <pub|path>`
-- `git-ssh-crypt add-user --github-user <user>`
-- `git-ssh-crypt add-user --github-keys-url <url>`
-- `git-ssh-crypt list-users [--verbose]`
-- `git-ssh-crypt remove-user --fingerprint <fp> [--force]`
-- `git-ssh-crypt revoke-user --fingerprint <fp> [--auto-reencrypt] [--json]`
-- `git-ssh-crypt revoke-user --github-user <user> [--all-keys-for-user] [--auto-reencrypt] [--json]`
-- `git-ssh-crypt revoke-user --org <org> --team <team> [--auto-reencrypt] [--json]`
-- `git-ssh-crypt add-github-user --username <user> [--no-auto-wrap]`
-- `git-ssh-crypt list-github-users [--verbose]`
-- `git-ssh-crypt remove-github-user --username <user> [--force]`
-- `git-ssh-crypt refresh-github-keys [--username <user>] [--dry-run] [--fail-on-drift] [--json]`
-- `git-ssh-crypt add-github-team --org <org> --team <team> [--no-auto-wrap]`
-- `git-ssh-crypt list-github-teams`
-- `git-ssh-crypt remove-github-team --org <org> --team <team>`
-- `git-ssh-crypt refresh-github-teams [--org <org>] [--team <team>] [--dry-run] [--fail-on-drift] [--json]`
-- `git-ssh-crypt access-audit [--identity <path>] [--json]`
+- `git-sshripped add-user --key <pub|path>`
+- `git-sshripped add-user --github-user <user>`
+- `git-sshripped add-user --github-keys-url <url>`
+- `git-sshripped list-users [--verbose]`
+- `git-sshripped remove-user --fingerprint <fp> [--force]`
+- `git-sshripped revoke-user --fingerprint <fp> [--auto-reencrypt] [--json]`
+- `git-sshripped revoke-user --github-user <user> [--all-keys-for-user] [--auto-reencrypt] [--json]`
+- `git-sshripped revoke-user --org <org> --team <team> [--auto-reencrypt] [--json]`
+- `git-sshripped add-github-user --username <user> [--no-auto-wrap]`
+- `git-sshripped list-github-users [--verbose]`
+- `git-sshripped remove-github-user --username <user> [--force]`
+- `git-sshripped refresh-github-keys [--username <user>] [--dry-run] [--fail-on-drift] [--json]`
+- `git-sshripped add-github-team --org <org> --team <team> [--no-auto-wrap]`
+- `git-sshripped list-github-teams`
+- `git-sshripped remove-github-team --org <org> --team <team>`
+- `git-sshripped refresh-github-teams [--org <org>] [--team <team>] [--dry-run] [--fail-on-drift] [--json]`
+- `git-sshripped access-audit [--identity <path>] [--json]`
 
 `add-github-user` and `add-github-team` auto-wrap by default when an unlock session is available. Use `--no-auto-wrap` to skip wrapping.
 
 ### Maintenance
 
-- `git-ssh-crypt install`
-- `git-ssh-crypt rewrap`
-- `git-ssh-crypt rotate-key [--auto-reencrypt]`
-- `git-ssh-crypt reencrypt`
-- `git-ssh-crypt migrate-from-git-crypt [--dry-run] [--reencrypt] [--verify] [--json]`
-- `git-ssh-crypt migrate-from-git-crypt ... [--write-report <path>]`
-- `git-ssh-crypt export-repo-key --out <path>`
-- `git-ssh-crypt import-repo-key --input <path>`
-- `git-ssh-crypt policy show|set|verify [--json]`
-- `git-ssh-crypt policy set --require-verify-strict-clean-for-rotate-revoke <true|false>`
-- `git-ssh-crypt policy set --max-source-staleness-hours <hours>`
-- `git-ssh-crypt config set-agent-helper <path>`
-- `git-ssh-crypt config set-github-api-base <url>`
-- `git-ssh-crypt config set-github-web-base <url>`
-- `git-ssh-crypt config set-github-auth-mode <auto|gh|token|anonymous>`
-- `git-ssh-crypt config set-github-private-source-hard-fail <true|false>`
-- `git-ssh-crypt config show`
+- `git-sshripped install`
+- `git-sshripped rewrap`
+- `git-sshripped rotate-key [--auto-reencrypt]`
+- `git-sshripped reencrypt`
+- `git-sshripped migrate-from-git-crypt [--dry-run] [--reencrypt] [--verify] [--json]`
+- `git-sshripped migrate-from-git-crypt ... [--write-report <path>]`
+- `git-sshripped export-repo-key --out <path>`
+- `git-sshripped import-repo-key --input <path>`
+- `git-sshripped policy show|set|verify [--json]`
+- `git-sshripped policy set --require-verify-strict-clean-for-rotate-revoke <true|false>`
+- `git-sshripped policy set --max-source-staleness-hours <hours>`
+- `git-sshripped config set-agent-helper <path>`
+- `git-sshripped config set-github-api-base <url>`
+- `git-sshripped config set-github-web-base <url>`
+- `git-sshripped config set-github-auth-mode <auto|gh|token|anonymous>`
+- `git-sshripped config set-github-private-source-hard-fail <true|false>`
+- `git-sshripped config show`
 
 ## Security notes
 

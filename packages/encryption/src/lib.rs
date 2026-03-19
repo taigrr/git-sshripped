@@ -3,7 +3,7 @@
 #![allow(clippy::multiple_crate_versions)]
 
 use anyhow::{Context, Result};
-use git_ssh_crypt_encryption_models::{
+use git_sshripped_encryption_models::{
     ENCRYPTED_MAGIC, EncryptedHeader, EncryptionAlgorithm, EncryptionModelsError,
 };
 use hkdf::Hkdf;
@@ -28,7 +28,7 @@ pub enum EncryptionError {
 }
 
 fn derive_key_material(repo_key: &[u8]) -> Result<[u8; 64]> {
-    let hk = Hkdf::<Sha256>::new(Some(b"git-ssh-crypt:aes-siv:v1"), repo_key);
+    let hk = Hkdf::<Sha256>::new(Some(b"git-sshripped:aes-siv:v1"), repo_key);
     let mut out = [0_u8; 64];
     hk.expand(b"file-key", &mut out)
         .map_err(|_| anyhow::anyhow!("failed to derive aes-siv key"))?;

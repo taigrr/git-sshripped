@@ -13,7 +13,7 @@ use age::Encryptor;
 use age::ssh::Recipient as SshRecipient;
 use anyhow::{Context, Result, bail};
 use base64::Engine;
-use git_ssh_crypt_recipient_models::{RecipientKey, RecipientSource};
+use git_sshripped_recipient_models::{RecipientKey, RecipientSource};
 use reqwest::StatusCode;
 use reqwest::header::{AUTHORIZATION, ETAG, HeaderMap, HeaderValue, IF_NONE_MATCH, USER_AGENT};
 use sha2::{Digest, Sha256};
@@ -196,7 +196,7 @@ fn gh_api_lines(path: &str, jq: &str, paginate: bool) -> Result<Vec<String>> {
 
 fn rest_headers(mode: GithubAuthMode, if_none_match: Option<&str>) -> Result<HeaderMap> {
     let mut headers = HeaderMap::new();
-    headers.insert(USER_AGENT, HeaderValue::from_static("git-ssh-crypt"));
+    headers.insert(USER_AGENT, HeaderValue::from_static("git-sshripped"));
 
     if let Some(etag) = if_none_match
         && !etag.trim().is_empty()
@@ -513,12 +513,12 @@ pub fn fetch_github_team_members_with_options(
 
 #[must_use]
 pub fn recipient_store_dir(repo_root: &Path) -> PathBuf {
-    repo_root.join(".git-ssh-crypt").join("recipients")
+    repo_root.join(".git-sshripped").join("recipients")
 }
 
 #[must_use]
 pub fn wrapped_store_dir(repo_root: &Path) -> PathBuf {
-    repo_root.join(".git-ssh-crypt").join("wrapped")
+    repo_root.join(".git-sshripped").join("wrapped")
 }
 
 pub fn list_recipients(repo_root: &Path) -> Result<Vec<RecipientKey>> {
