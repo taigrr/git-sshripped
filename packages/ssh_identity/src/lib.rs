@@ -3,6 +3,7 @@
 #![allow(clippy::multiple_crate_versions)]
 
 use std::path::PathBuf;
+use std::process::Command;
 
 use age::Decryptor;
 use age::Identity;
@@ -28,6 +29,69 @@ pub fn default_private_key_candidates() -> Vec<PathBuf> {
         candidates.push(home.join(".ssh").join("id_rsa"));
     }
     candidates
+}
+
+pub fn agent_public_keys() -> Result<Vec<String>> {
+    if std::env::var_os("SSH_AUTH_SOCK").is_none() {
+        return Ok(Vec::new());
+    }
+
+    let output = Command::new("ssh-add")
+        .arg("-L")
+        .output()
+        .context("failed to run ssh-add -L")?;
+
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let text = String::from_utf8(output.stdout).context("ssh-add output was not utf8")?;
+    let keys = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToString::to_string)
+        .collect();
+    Ok(keys)
+}
+
+pub fn private_keys_matching_agent() -> Result<Vec<PathBuf>> {
+    let agent_keys = agent_public_keys()?;
+    if agent_keys.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut matches = Vec::new();
+    for public_candidate in default_public_key_candidates() {
+        if !public_candidate.exists() {
+            continue;
+        }
+
+        let public_line = std::fs::read_to_string(&public_candidate).with_context(|| {
+            format!(
+                "failed reading public key candidate {}",
+                public_candidate.display()
+            )
+        })?;
+        let public_line = public_line.trim();
+
+        if !agent_keys.iter().any(|line| line.trim() == public_line) {
+            continue;
+        }
+
+        if let Some(stem) = public_candidate.file_name().and_then(|s| s.to_str())
+            && let Some(private_name) = stem.strip_suffix(".pub")
+        {
+            let private_path = public_candidate
+                .parent()
+                .map_or_else(|| PathBuf::from(private_name), |p| p.join(private_name));
+            if private_path.exists() {
+                matches.push(private_path);
+            }
+        }
+    }
+
+    Ok(matches)
 }
 
 pub fn detect_identity() -> Result<IdentityDescriptor> {

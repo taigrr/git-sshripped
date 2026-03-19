@@ -113,6 +113,17 @@ fn ci_smoke_init_unlock_doctor_verify() {
                 .expect("private key path should be utf8"),
         ]),
     );
+    run_ok(Command::new(bin).current_dir(repo).args(["lock"]));
+    run_ok(
+        Command::new(bin).current_dir(repo).args([
+            "unlock",
+            "--identity",
+            private_key
+                .to_str()
+                .expect("private key path should be utf8"),
+            "--no-agent",
+        ]),
+    );
 
     let secret_dir = repo.join("secrets");
     fs::create_dir_all(&secret_dir).expect("secrets dir should create");

@@ -30,7 +30,7 @@ use git_ssh_crypt_repository_models::{
 };
 use git_ssh_crypt_ssh_identity::{
     default_private_key_candidates, default_public_key_candidates, detect_identity,
-    unwrap_repo_key_from_wrapped_files,
+    private_keys_matching_agent, unwrap_repo_key_from_wrapped_files,
 };
 use git_ssh_crypt_worktree::{
     clear_unlock_session, git_common_dir, git_toplevel, read_unlock_session, write_unlock_session,
@@ -79,6 +79,10 @@ enum Command {
         identities: Vec<String>,
         #[arg(long = "github-user")]
         github_user: Option<String>,
+        #[arg(long)]
+        prefer_agent: bool,
+        #[arg(long)]
+        no_agent: bool,
     },
     Lock,
     Status {
@@ -229,7 +233,9 @@ fn main() -> Result<()> {
             key_hex,
             identities,
             github_user,
-        } => cmd_unlock(key_hex, identities, github_user),
+            prefer_agent,
+            no_agent,
+        } => cmd_unlock(key_hex, identities, github_user, prefer_agent, no_agent),
         Command::Lock => cmd_lock(),
         Command::Status { json } => cmd_status(json),
         Command::Doctor { json } => cmd_doctor(json),
@@ -475,6 +481,8 @@ fn cmd_unlock(
     key_hex: Option<String>,
     identities: Vec<String>,
     github_user: Option<String>,
+    prefer_agent: bool,
+    no_agent: bool,
 ) -> Result<()> {
     let repo_root = current_repo_root()?;
     let common_dir = current_common_dir()?;
@@ -485,11 +493,28 @@ fn cmd_unlock(
             "key-hex".to_string(),
         )
     } else {
-        let identity_files = if identities.is_empty() {
-            default_private_key_candidates()
+        let explicit_identities: Vec<PathBuf> = identities.into_iter().map(PathBuf::from).collect();
+        let mut identity_files = Vec::new();
+
+        if !no_agent {
+            let mut agent_matches = private_keys_matching_agent()?;
+            identity_files.append(&mut agent_matches);
+        }
+
+        if !explicit_identities.is_empty() {
+            if prefer_agent {
+                identity_files.extend(explicit_identities);
+            } else {
+                let mut merged = explicit_identities;
+                merged.extend(identity_files);
+                identity_files = merged;
+            }
         } else {
-            identities.into_iter().map(PathBuf::from).collect()
-        };
+            identity_files.extend(default_private_key_candidates());
+        }
+
+        identity_files.sort();
+        identity_files.dedup();
 
         let mut wrapped_files = wrapped_key_files(&repo_root)?;
         if let Some(user) = github_user {
@@ -521,7 +546,9 @@ fn cmd_unlock(
         let Some((unwrapped, descriptor)) =
             unwrap_repo_key_from_wrapped_files(&wrapped_files, &identity_files)?
         else {
-            anyhow::bail!("could not decrypt any wrapped key with provided/default identities");
+            anyhow::bail!(
+                "could not decrypt any wrapped key with ssh-agent matched identities or provided/default identity files"
+            );
         };
         (unwrapped, descriptor.label)
     };
@@ -1126,6 +1153,75 @@ fn cmd_install() -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug)]
+struct GitattributesMigrationPlan {
+    rewritten_text: String,
+    patterns: Vec<String>,
+    legacy_lines_found: usize,
+    legacy_lines_replaced: usize,
+    duplicate_lines_removed: usize,
+}
+
+fn build_gitattributes_migration_plan(text: &str) -> GitattributesMigrationPlan {
+    let mut output_lines = Vec::new();
+    let mut seen_lines = std::collections::HashSet::new();
+    let mut patterns = std::collections::BTreeSet::new();
+    let mut legacy_lines_found = 0usize;
+    let mut legacy_lines_replaced = 0usize;
+    let mut duplicate_lines_removed = 0usize;
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            output_lines.push(line.to_string());
+            continue;
+        }
+
+        let Some(pattern) = trimmed.split_whitespace().next().filter(|p| !p.is_empty()) else {
+            output_lines.push(line.to_string());
+            continue;
+        };
+
+        if trimmed.contains("filter=git-crypt") {
+            legacy_lines_found += 1;
+            legacy_lines_replaced += 1;
+            patterns.insert(pattern.to_string());
+            let normalized = format!("{pattern} filter=git-ssh-crypt diff=git-ssh-crypt");
+            if seen_lines.insert(normalized.clone()) {
+                output_lines.push(normalized);
+            } else {
+                duplicate_lines_removed += 1;
+            }
+            continue;
+        }
+
+        if trimmed.contains("filter=git-ssh-crypt") {
+            patterns.insert(pattern.to_string());
+            if seen_lines.insert(trimmed.to_string()) {
+                output_lines.push(trimmed.to_string());
+            } else {
+                duplicate_lines_removed += 1;
+            }
+            continue;
+        }
+
+        output_lines.push(line.to_string());
+    }
+
+    let mut rewritten_text = output_lines.join("\n");
+    if !rewritten_text.ends_with('\n') {
+        rewritten_text.push('\n');
+    }
+
+    GitattributesMigrationPlan {
+        rewritten_text,
+        patterns: patterns.into_iter().collect(),
+        legacy_lines_found,
+        legacy_lines_replaced,
+        duplicate_lines_removed,
+    }
+}
+
 fn cmd_migrate_from_git_crypt(
     dry_run: bool,
     reencrypt: bool,
@@ -1137,38 +1233,33 @@ fn cmd_migrate_from_git_crypt(
     let text =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
 
-    let mut patterns = Vec::new();
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
+    let plan = build_gitattributes_migration_plan(&text);
+    if plan.patterns.is_empty() {
+        let payload = serde_json::json!({
+            "ok": true,
+            "dry_run": dry_run,
+            "noop": true,
+            "reason": "no git-crypt or git-ssh-crypt patterns found",
+        });
+        if json {
+            println!("{}", serde_json::to_string_pretty(&payload)?);
+        } else {
+            println!("migrate-from-git-crypt: no matching patterns found; nothing to do");
         }
-        if !trimmed.contains("filter=git-crypt") {
-            continue;
-        }
-        if let Some(pattern) = trimmed.split_whitespace().next()
-            && !pattern.is_empty()
-        {
-            patterns.push(pattern.to_string());
-        }
+        return Ok(());
     }
-
-    if patterns.is_empty() {
-        anyhow::bail!("no git-crypt patterns found in .gitattributes");
-    }
-
-    patterns.sort();
-    patterns.dedup();
 
     let mut manifest_before = read_manifest(&repo_root).unwrap_or_default();
     let old_patterns = manifest_before.protected_patterns.clone();
-    manifest_before.protected_patterns = patterns;
+    manifest_before.protected_patterns = plan.patterns.clone();
     let manifest_after = manifest_before;
 
     let imported_patterns = manifest_after.protected_patterns.len();
     let changed_patterns = old_patterns != manifest_after.protected_patterns;
 
     if !dry_run {
+        fs::write(&path, &plan.rewritten_text)
+            .with_context(|| format!("failed to rewrite {}", path.display()))?;
         write_manifest(&repo_root, &manifest_after)?;
         install_gitattributes(&repo_root, &manifest_after.protected_patterns)?;
         install_git_filters(&repo_root)?;
@@ -1209,6 +1300,11 @@ fn cmd_migrate_from_git_crypt(
     let report = serde_json::json!({
         "ok": true,
         "dry_run": dry_run,
+        "gitattributes": {
+            "legacy_lines_found": plan.legacy_lines_found,
+            "legacy_lines_replaced": plan.legacy_lines_replaced,
+            "duplicate_lines_removed": plan.duplicate_lines_removed,
+        },
         "imported_patterns": imported_patterns,
         "changed_patterns": changed_patterns,
         "reencrypt_requested": reencrypt,
@@ -1221,8 +1317,14 @@ fn cmd_migrate_from_git_crypt(
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
         println!(
-            "migrate-from-git-crypt: patterns={} changed={} dry_run={} reencrypted={} verify={}",
-            imported_patterns, changed_patterns, dry_run, reencrypted_files, verify
+            "migrate-from-git-crypt: patterns={} changed={} legacy_replaced={} duplicates_removed={} dry_run={} reencrypted={} verify={}",
+            imported_patterns,
+            changed_patterns,
+            plan.legacy_lines_replaced,
+            plan.duplicate_lines_removed,
+            dry_run,
+            reencrypted_files,
+            verify
         );
     }
 
@@ -2177,6 +2279,21 @@ mod tests {
             handle_filter_handshake(&mut reader, &mut output).expect("handshake should work");
         assert!(pending.is_none());
         assert!(!output.is_empty());
+    }
+
+    #[test]
+    fn gitattributes_migration_rewrites_git_crypt_lines() {
+        let input = "# comment\nsecret.env filter=git-crypt diff=git-crypt\nsecret.env filter=git-crypt diff=git-crypt\nplain.txt text\n";
+        let plan = build_gitattributes_migration_plan(input);
+        assert_eq!(plan.legacy_lines_found, 2);
+        assert_eq!(plan.legacy_lines_replaced, 2);
+        assert_eq!(plan.duplicate_lines_removed, 1);
+        assert!(
+            plan.rewritten_text
+                .contains("secret.env filter=git-ssh-crypt diff=git-ssh-crypt")
+        );
+        assert!(!plan.rewritten_text.contains("filter=git-crypt"));
+        assert_eq!(plan.patterns, vec!["secret.env".to_string()]);
     }
 
     proptest! {

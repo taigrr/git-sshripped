@@ -47,7 +47,7 @@ git-ssh-crypt lock
 
 ### Daily use
 
-- `git-ssh-crypt unlock [--identity <path>] [--github-user <user>]`
+- `git-ssh-crypt unlock [--identity <path>] [--github-user <user>] [--prefer-agent] [--no-agent]`
 - `git-ssh-crypt lock`
 - `git-ssh-crypt status`
 - `git-ssh-crypt doctor [--json]`
