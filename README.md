@@ -1,50 +1,71 @@
 # git-ssh-crypt
 
-Worktree-safe transparent Git encryption using SSH-oriented recipient workflows.
+`git-ssh-crypt` keeps selected files encrypted in Git while still letting you work with plaintext when the repository is unlocked.
 
-## Workspace architecture
+It is for teams that already use SSH keys and want encryption to fit normal Git usage instead of adding a separate manual workflow.
 
-This project follows a strict domain + `*_models` package convention:
+## Why this tool
 
-- `git_ssh_crypt_<domain>` for behavior
-- `git_ssh_crypt_<domain>_models` for domain-owned shared types
+- SSH-native recipient access using existing SSH public/private keys.
+- Git-transparent encryption through Git filters, so normal `git add`, `git commit`, and `git checkout` behavior still applies.
+- Worktree-aware lock/unlock state that behaves consistently across Git worktrees.
+- Built-in checks (`doctor`, `verify --strict`) to catch config issues and plaintext mistakes early.
 
-Current domains:
+Many alternatives fall short because they require manual encrypt/decrypt steps, do not use SSH as the recipient model, or do not behave cleanly with worktrees.
 
-- `repository`
-- `recipient`
-- `worktree`
-- `encryption`
-- `filter`
-- `ssh_identity`
-- `cli`
+## How it works
 
-## Current behavior
+1. `init` sets up manifest, patterns, and Git filter wiring.
+2. Protected paths (for example `secrets/**`) are encrypted when staged.
+3. The repository data key is wrapped to configured SSH recipients.
+4. `unlock` makes protected files readable in your working tree.
+5. `lock` removes unlocked key material and protected paths read back as ciphertext.
 
-- Repository metadata in `.git-ssh-crypt/manifest.toml`
-- Git filter wiring + attributes installation from `init`
-- Worktree-shared unlock state in `GIT_COMMON_DIR/git-ssh-crypt/session/unlock.json`
-- Filter policy:
-  - smudge fail-open (returns ciphertext if locked)
-  - clean fail-closed for protected plaintext when locked
-- Deterministic encrypted file format with AES-SIV backend
-- Repository key wrapping to SSH recipients using age SSH support
-- Unlock by unwrapping wrapped key files with local SSH private keys
+## Quick start
 
-## Commands
+```bash
+# in an existing Git repository
+git-ssh-crypt init --strict --pattern "secrets/**" --recipient-key ~/.ssh/id_ed25519.pub
 
-- `git-ssh-crypt init [--strict]`
+# unlock using your SSH private key
+git-ssh-crypt unlock --identity ~/.ssh/id_ed25519
+
+# work normally
+mkdir -p secrets
+printf 'API_TOKEN=example\n' > secrets/app.env
+git add secrets/app.env
+
+# validate setup
+git-ssh-crypt doctor
+git-ssh-crypt verify --strict
+
+# lock when done
+git-ssh-crypt lock
+```
+
+## Common commands
+
+### Daily use
+
 - `git-ssh-crypt unlock [--identity <path>] [--github-user <user>]`
 - `git-ssh-crypt lock`
 - `git-ssh-crypt status`
-- `git-ssh-crypt install`
 - `git-ssh-crypt doctor`
 - `git-ssh-crypt verify [--strict]`
-- `git-ssh-crypt add-user --key <pub|path> [--github-user <user>] [--github-keys-url <url>]`
+
+### User and access management
+
+- `git-ssh-crypt add-user --key <pub|path>`
+- `git-ssh-crypt add-user --github-user <user>`
+- `git-ssh-crypt add-user --github-keys-url <url>`
 - `git-ssh-crypt list-users [--verbose]`
+- `git-ssh-crypt remove-user --fingerprint <fp> [--force]`
 - `git-ssh-crypt refresh-github-keys`
 - `git-ssh-crypt access-audit [--identity <path>]`
-- `git-ssh-crypt remove-user --fingerprint <fp> [--force]`
+
+### Maintenance
+
+- `git-ssh-crypt install`
 - `git-ssh-crypt rewrap`
 - `git-ssh-crypt rotate-key [--auto-reencrypt]`
 - `git-ssh-crypt reencrypt`
@@ -52,24 +73,10 @@ Current domains:
 - `git-ssh-crypt export-repo-key --out <path>`
 - `git-ssh-crypt import-repo-key --input <path>`
 
-## Important implementation note
+## Security notes
 
-The long-running `filter-process` protocol is enabled by default via git
-config. The single-blob `clean`/`smudge` commands remain available as explicit
-fallback commands.
+- This project is pre-1.0 and should be treated as security-sensitive software.
+- Deterministic encryption is used for Git filter stability and has known leakage tradeoffs.
+- Keep at least two valid recipients configured to reduce lockout risk.
 
-## CI baseline
-
-- `git-ssh-crypt doctor`
-- `git-ssh-crypt verify --strict`
-- `cargo deny check`
-
-## Operational self-check
-
-Run this sequence in a repository using git-ssh-crypt:
-
-```bash
-git-ssh-crypt doctor
-git-ssh-crypt verify --strict
-cargo test -p git_ssh_crypt_cli --test smoke_ci
-```
+See `SECURITY.md` for the full threat model and operational guidance.
