@@ -71,6 +71,7 @@ enum Command {
     },
     Lock,
     Status,
+    Doctor,
     Rewrap,
     AddUser {
         #[arg(long)]
@@ -109,6 +110,7 @@ fn main() -> Result<()> {
         } => cmd_unlock(key_hex, identities),
         Command::Lock => cmd_lock(),
         Command::Status => cmd_status(),
+        Command::Doctor => cmd_doctor(),
         Command::Rewrap => cmd_rewrap(),
         Command::AddUser {
             key,
@@ -386,6 +388,141 @@ fn repo_key_from_session_in(common_dir: &std::path::Path) -> Result<Option<Vec<u
 fn repo_key_from_session() -> Result<Option<Vec<u8>>> {
     let common_dir = current_common_dir()?;
     repo_key_from_session_in(&common_dir)
+}
+
+fn git_local_config(repo_root: &std::path::Path, key: &str) -> Result<Option<String>> {
+    let output = std::process::Command::new("git")
+        .current_dir(repo_root)
+        .args(["config", "--local", "--get", key])
+        .output()
+        .with_context(|| format!("failed to run git config --get {key}"))?;
+
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let value = String::from_utf8(output.stdout)
+        .with_context(|| format!("git config value for {key} is not utf8"))?
+        .trim()
+        .to_string();
+    Ok(Some(value))
+}
+
+fn cmd_doctor() -> Result<()> {
+    let mut failures = Vec::new();
+
+    let repo_root = current_repo_root()?;
+    let common_dir = current_common_dir()?;
+    println!("doctor: repo root {}", repo_root.display());
+    println!("doctor: common dir {}", common_dir.display());
+
+    let manifest = match read_manifest(&repo_root) {
+        Ok(manifest) => {
+            println!("check manifest: PASS");
+            manifest
+        }
+        Err(err) => {
+            println!("check manifest: FAIL");
+            failures.push(format!("manifest unreadable: {err:#}"));
+            RepositoryManifest::default()
+        }
+    };
+
+    let process_cfg = git_local_config(&repo_root, "filter.git-ssh-crypt.process")?;
+    if process_cfg
+        .as_ref()
+        .is_some_and(|value| value.contains("filter-process"))
+    {
+        println!("check filter.process: PASS");
+    } else {
+        println!("check filter.process: FAIL");
+        failures.push("filter.git-ssh-crypt.process is missing or invalid".to_string());
+    }
+
+    let required_cfg = git_local_config(&repo_root, "filter.git-ssh-crypt.required")?;
+    if required_cfg.as_deref() == Some("true") {
+        println!("check filter.required: PASS");
+    } else {
+        println!("check filter.required: FAIL");
+        failures.push("filter.git-ssh-crypt.required should be true".to_string());
+    }
+
+    let gitattributes = repo_root.join(".gitattributes");
+    match fs::read_to_string(&gitattributes) {
+        Ok(text) if text.contains("filter=git-ssh-crypt") => {
+            println!("check gitattributes wiring: PASS");
+        }
+        Ok(_) => {
+            println!("check gitattributes wiring: FAIL");
+            failures.push(".gitattributes has no filter=git-ssh-crypt entries".to_string());
+        }
+        Err(err) => {
+            println!("check gitattributes wiring: FAIL");
+            failures.push(format!("cannot read {}: {err}", gitattributes.display()));
+        }
+    }
+
+    let recipients = list_recipients(&repo_root)?;
+    if recipients.is_empty() {
+        println!("check recipients: FAIL");
+        failures.push("no recipients configured".to_string());
+    } else {
+        println!("check recipients: PASS ({})", recipients.len());
+    }
+
+    let wrapped_files = wrapped_key_files(&repo_root)?;
+    if wrapped_files.is_empty() {
+        println!("check wrapped keys: FAIL");
+        failures.push("no wrapped keys found".to_string());
+    } else {
+        println!("check wrapped keys: PASS ({})", wrapped_files.len());
+    }
+
+    for recipient in &recipients {
+        let wrapped = wrapped_store_dir(&repo_root).join(format!("{}.age", recipient.fingerprint));
+        if !wrapped.exists() {
+            failures.push(format!(
+                "missing wrapped key for recipient {}",
+                recipient.fingerprint
+            ));
+        }
+    }
+
+    let session = read_unlock_session(&common_dir)?;
+    if let Some(session) = session {
+        let decoded = base64::engine::general_purpose::STANDARD_NO_PAD
+            .decode(session.key_b64)
+            .context("unlock session key is invalid base64")?;
+        if decoded.len() == 32 {
+            println!("check unlock session: PASS (UNLOCKED)");
+        } else {
+            println!("check unlock session: FAIL");
+            failures.push(format!(
+                "unlock session key length is {}, expected 32",
+                decoded.len()
+            ));
+        }
+    } else {
+        println!("check unlock session: PASS (LOCKED)");
+    }
+
+    println!("doctor: algorithm {:?}", manifest.encryption_algorithm);
+    println!(
+        "doctor: protected patterns {}",
+        manifest.protected_patterns.join(", ")
+    );
+
+    if failures.is_empty() {
+        println!("doctor: OK");
+        return Ok(());
+    }
+
+    println!("doctor: {} issue(s) found", failures.len());
+    for failure in failures {
+        eprintln!("- {failure}");
+    }
+
+    anyhow::bail!("doctor checks failed")
 }
 
 fn read_stdin_all() -> Result<Vec<u8>> {
