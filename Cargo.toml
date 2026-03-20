@@ -15,6 +15,8 @@ members = [
   "packages/filter/models",
   "packages/ssh_identity",
   "packages/ssh_identity/models",
+  "packages/sshrypt-alias",
+  "packages/sshript-alias",
 ]
 resolver = "2"
 
@@ -26,7 +28,10 @@ repository = "https://github.com/BSteffaniak/git-sshripped"
 version = "0.1.0"
 
 [workspace.dependencies]
+git_sshripped_cli = { version = "0.1.0", path = "packages/cli" }
 git_sshripped_cli_models = { version = "0.1.0", path = "packages/cli/models" }
+git_sshrypt = { version = "0.1.0", path = "packages/sshrypt-alias" }
+git_sshript = { version = "0.1.0", path = "packages/sshript-alias" }
 git_sshripped_encryption = { version = "0.1.0", path = "packages/encryption", default-features = false }
 git_sshripped_encryption_models = { version = "0.1.0", path = "packages/encryption/models" }
 git_sshripped_filter = { version = "0.1.0", path = "packages/filter", default-features = false }

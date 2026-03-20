@@ -9,6 +9,10 @@ name = "git_sshripped_cli"
 repository = { workspace = true }
 version = { workspace = true }
 
+[lib]
+name = "git_sshripped_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "git-sshripped"
 path = "src/main.rs"

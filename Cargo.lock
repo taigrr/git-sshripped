@@ -880,6 +880,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "git_sshript"
+version = "0.1.0"
+dependencies = [
+ "git_sshripped_cli",
+]
+
+[[package]]
+name = "git_sshrypt"
+version = "0.1.0"
+dependencies = [
+ "git_sshripped_cli",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
