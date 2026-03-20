@@ -241,27 +241,38 @@ pub fn default_private_key_candidates() -> Vec<PathBuf> {
 ///
 /// Returns an error if `ssh-add -L` fails to execute or produces non-UTF-8
 /// output.
+/// List public key strings for all identities currently loaded in the SSH
+/// agent, in the same `key-type base64-data [comment]` format as
+/// `ssh-add -L`.
+///
+/// Returns an empty vec when `SSH_AUTH_SOCK` is not set, the agent is
+/// unreachable, or the agent has no keys.
+///
+/// # Errors
+///
+/// Returns an error only on unexpected failures *after* a successful
+/// connection.
 pub fn agent_public_keys() -> Result<Vec<String>> {
-    if std::env::var_os("SSH_AUTH_SOCK").is_none() {
+    let Some(sock) = std::env::var_os("SSH_AUTH_SOCK") else {
         return Ok(Vec::new());
-    }
-
-    let output = Command::new("ssh-add")
-        .arg("-L")
-        .output()
-        .context("failed to run ssh-add -L")?;
-
-    if !output.status.success() {
+    };
+    let sock_path = std::path::Path::new(&sock);
+    let Ok(mut client) = ssh_agent_client_rs::Client::connect(sock_path) else {
         return Ok(Vec::new());
-    }
+    };
 
-    let text = String::from_utf8(output.stdout).context("ssh-add output was not utf8")?;
-    let keys = text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(ToString::to_string)
-        .collect();
+    let identities = client
+        .list_all_identities()
+        .context("failed to list SSH agent identities")?;
+
+    let mut keys = Vec::new();
+    for identity in identities {
+        let pubkey: &ssh_key::PublicKey = match &identity {
+            ssh_agent_client_rs::Identity::PublicKey(boxed_cow) => boxed_cow.as_ref(),
+            ssh_agent_client_rs::Identity::Certificate(_) => continue,
+        };
+        keys.push(pubkey.to_openssh().unwrap_or_default());
+    }
     Ok(keys)
 }
 

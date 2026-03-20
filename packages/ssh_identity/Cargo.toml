@@ -17,6 +17,8 @@ anyhow = { workspace = true, features = ["std"] }
 dirs = { workspace = true }
 hex = { workspace = true, features = ["std"] }
 rpassword = { workspace = true }
+ssh-agent-client-rs = { workspace = true }
+ssh-key = { workspace = true }
 wait-timeout = { workspace = true }
 
 [features]

@@ -968,6 +968,8 @@ dependencies = [
  "git_sshripped_ssh_identity_models",
  "hex",
  "rpassword",
+ "ssh-agent-client-rs",
+ "ssh-key",
  "tempfile",
  "wait-timeout",
 ]
