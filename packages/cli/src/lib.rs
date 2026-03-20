@@ -3825,6 +3825,7 @@ fn resolve_common_dir_for_filter(cwd: &std::path::Path) -> Result<PathBuf> {
         if let Some(parent) = git_dir_abs.parent()
             && parent.file_name().is_some_and(|name| name == "worktrees")
             && let Some(common) = parent.parent()
+            && common.join("HEAD").exists()
         {
             return Ok(common.to_path_buf());
         }
