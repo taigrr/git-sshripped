@@ -1241,7 +1241,7 @@ fn cmd_unlock(
     write_unlock_session(&common_dir, &key, &key_source, Some(key_id))?;
     install_git_filters(&repo_root, &current_bin_path())?;
 
-    let decrypted_count = decrypt_protected_worktree_files(&repo_root, &key);
+    let decrypted_count = checkout_encrypted_worktree_files(&repo_root);
 
     println!(
         "unlocked repository across worktrees via {}",
@@ -1253,34 +1253,65 @@ fn cmd_unlock(
     Ok(())
 }
 
-fn decrypt_protected_worktree_files(repo_root: &std::path::Path, key: &[u8]) -> usize {
-    let mut decrypted_count = 0usize;
-    if let Ok(protected) = protected_tracked_files(repo_root) {
-        if !protected.is_empty() {
-            println!(
-                "decrypting {} protected files in working tree...",
-                protected.len()
-            );
-        }
-        for path in &protected {
+/// Batch size for `git checkout` calls, matching git-crypt's limit to avoid
+/// hitting OS argument-length limits on repositories with many encrypted files.
+const GIT_CHECKOUT_BATCH_SIZE: usize = 100;
+
+/// Check out protected files that are still encrypted on disk via
+/// `git checkout -- <paths>`.  Because the smudge filter is now installed and
+/// the unlock session is active, Git will decrypt them during checkout **and**
+/// update the index stat cache so that `git status` sees them as clean.
+///
+/// Only files whose on-disk content starts with the encrypted magic bytes are
+/// touched; plaintext files (e.g. ones the user has already edited) are left
+/// alone.
+fn checkout_encrypted_worktree_files(repo_root: &std::path::Path) -> usize {
+    let Ok(protected) = protected_tracked_files(repo_root) else {
+        return 0;
+    };
+
+    // Filter to only files that are currently encrypted on disk.
+    let encrypted: Vec<&str> = protected
+        .iter()
+        .filter(|path| {
             let full = repo_root.join(path);
-            if let Ok(content) = fs::read(&full)
-                && content.starts_with(&ENCRYPTED_MAGIC)
-            {
-                match git_sshripped_encryption::decrypt(key, path, &content) {
-                    Ok(plaintext) => {
-                        if fs::write(&full, &plaintext).is_ok() {
-                            decrypted_count += 1;
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("warning: failed to decrypt {path}: {e}");
-                    }
-                }
+            fs::read(&full)
+                .map(|c| c.starts_with(&ENCRYPTED_MAGIC))
+                .unwrap_or(false)
+        })
+        .map(String::as_str)
+        .collect();
+
+    if encrypted.is_empty() {
+        return 0;
+    }
+
+    println!(
+        "decrypting {} protected files in working tree...",
+        encrypted.len()
+    );
+
+    let mut decrypted = 0usize;
+    for batch in encrypted.chunks(GIT_CHECKOUT_BATCH_SIZE) {
+        let mut cmd = std::process::Command::new("git");
+        cmd.current_dir(repo_root).args(["checkout", "--"]);
+        for path in batch {
+            cmd.arg(path);
+        }
+        match cmd.output() {
+            Ok(output) if output.status.success() => {
+                decrypted += batch.len();
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                eprintln!("warning: git checkout failed for batch: {stderr}");
+            }
+            Err(e) => {
+                eprintln!("warning: failed to run git checkout: {e}");
             }
         }
     }
-    decrypted_count
+    decrypted
 }
 
 fn cmd_lock(force: bool, no_scrub: bool) -> Result<()> {
