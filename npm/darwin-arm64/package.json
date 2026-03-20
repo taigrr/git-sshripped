@@ -1,6 +1,6 @@
 {
   "name": "@git-sshripped/darwin-arm64",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "git-sshripped binary for macOS ARM64 (Apple Silicon)",
   "license": "MPL-2.0",
   "repository": {

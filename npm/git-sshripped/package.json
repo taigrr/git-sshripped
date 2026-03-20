@@ -1,6 +1,6 @@
 {
   "name": "git-sshripped",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Git-transparent encryption using SSH keys. No GPG, no Rust toolchain required.",
   "license": "MPL-2.0",
   "repository": {
@@ -15,12 +15,12 @@
     "node": ">=18"
   },
   "optionalDependencies": {
-    "@git-sshripped/darwin-arm64": "0.1.3",
-    "@git-sshripped/darwin-x64": "0.1.3",
-    "@git-sshripped/linux-arm64": "0.1.3",
-    "@git-sshripped/linux-x64": "0.1.3",
-    "@git-sshripped/linux-x64-musl": "0.1.3",
-    "@git-sshripped/win32-x64": "0.1.3"
+    "@git-sshripped/darwin-arm64": "0.1.4",
+    "@git-sshripped/darwin-x64": "0.1.4",
+    "@git-sshripped/linux-arm64": "0.1.4",
+    "@git-sshripped/linux-x64": "0.1.4",
+    "@git-sshripped/linux-x64-musl": "0.1.4",
+    "@git-sshripped/win32-x64": "0.1.4"
   },
   "files": [
     "bin/",
