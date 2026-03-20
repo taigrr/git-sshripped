@@ -55,7 +55,7 @@ impl From<CliAlgorithm> for EncryptionAlgorithm {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "git-sshripped")]
+#[command(name = "git-sshripped", version)]
 #[command(about = "Git-transparent encryption using SSH-oriented workflows")]
 struct Cli {
     #[command(subcommand)]
