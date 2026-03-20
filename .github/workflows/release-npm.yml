@@ -127,9 +127,10 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          set -euo pipefail
           for pkg in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-x64-musl win32-x64; do
             echo "Publishing @git-sshripped/${pkg}..."
-            npm publish "npm/${pkg}" --access public
+            npm publish "npm/${pkg}"
           done
 
       - name: Publish main package
@@ -137,8 +138,9 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          set -euo pipefail
           echo "Publishing git-sshripped..."
-          npm publish npm/git-sshripped --access public
+          npm publish npm/git-sshripped
 
       - name: Dry run summary
         if: ${{ inputs.dry_run }}
