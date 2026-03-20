@@ -1122,13 +1122,13 @@ fn cmd_init(
 /// # Errors
 ///
 /// Returns an error on I/O failures after a successful agent connection.
-fn try_agent_wrap_unlock(repo_root: &std::path::Path) -> Result<Option<(Vec<u8>, String)>> {
+fn try_agent_wrap_unlock(common_dir: &std::path::Path) -> Result<Option<(Vec<u8>, String)>> {
     let agent_keys = match list_agent_ed25519_keys() {
         Ok(keys) if !keys.is_empty() => keys,
         _ => return Ok(None),
     };
 
-    let wrap_files = git_sshripped_repository::list_agent_wrap_files(repo_root)?;
+    let wrap_files = git_sshripped_repository::list_agent_wrap_files(common_dir)?;
     if wrap_files.is_empty() {
         return Ok(None);
     }
@@ -1158,7 +1158,11 @@ fn try_agent_wrap_unlock(repo_root: &std::path::Path) -> Result<Option<(Vec<u8>,
 ///
 /// This is called opportunistically after a successful unlock so that
 /// agent-based unlock becomes available for the next time.
-fn generate_missing_agent_wraps(repo_root: &std::path::Path, repo_key: &[u8]) {
+fn generate_missing_agent_wraps(
+    repo_root: &std::path::Path,
+    common_dir: &std::path::Path,
+    repo_key: &[u8],
+) {
     let agent_keys = match list_agent_ed25519_keys() {
         Ok(keys) if !keys.is_empty() => keys,
         _ => return,
@@ -1173,7 +1177,7 @@ fn generate_missing_agent_wraps(repo_root: &std::path::Path, repo_key: &[u8]) {
     for recipient in &recipients {
         // Check if an agent-wrap file already exists for this recipient.
         let wrap_file =
-            git_sshripped_repository::agent_wrap_file(repo_root, &recipient.fingerprint);
+            git_sshripped_repository::agent_wrap_file(common_dir, &recipient.fingerprint);
         if wrap_file.exists() {
             continue;
         }
@@ -1189,7 +1193,7 @@ fn generate_missing_agent_wraps(repo_root: &std::path::Path, repo_key: &[u8]) {
         // Generate the agent-wrap file.
         match agent_wrap_repo_key(agent_key, repo_key) {
             Ok(wrapped) => {
-                if let Err(e) = git_sshripped_repository::write_agent_wrap(repo_root, &wrapped) {
+                if let Err(e) = git_sshripped_repository::write_agent_wrap(common_dir, &wrapped) {
                     eprintln!(
                         "warning: failed to write agent-wrap for {}: {e}",
                         recipient.fingerprint
@@ -1209,7 +1213,7 @@ fn generate_missing_agent_wraps(repo_root: &std::path::Path, repo_key: &[u8]) {
 
     if !generated.is_empty() {
         eprintln!(
-            "generated agent-wrap key(s) for {} (commit .git-sshripped/wrapped/ to share)",
+            "generated agent-wrap key(s) for {} (fast unlock now available)",
             generated.join(", ")
         );
     }
@@ -1217,6 +1221,7 @@ fn generate_missing_agent_wraps(repo_root: &std::path::Path, repo_key: &[u8]) {
 
 fn unwrap_repo_key_from_identities(
     repo_root: &std::path::Path,
+    common_dir: &std::path::Path,
     identities: Vec<String>,
     github_user: Option<String>,
     prefer_agent: bool,
@@ -1273,7 +1278,7 @@ fn unwrap_repo_key_from_identities(
     }
 
     // --- Try agent-wrapped keys first (fastest, no passphrase needed) ---
-    if !no_agent && let Some((key, source)) = try_agent_wrap_unlock(repo_root)? {
+    if !no_agent && let Some((key, source)) = try_agent_wrap_unlock(common_dir)? {
         return Ok((key, source));
     }
 
@@ -1337,6 +1342,7 @@ fn cmd_unlock(
     } else {
         unwrap_repo_key_from_identities(
             &repo_root,
+            &common_dir,
             identities,
             github_user,
             prefer_agent,
@@ -1361,7 +1367,7 @@ fn cmd_unlock(
 
     // Opportunistically generate agent-wrap files for recipients whose keys
     // are in the SSH agent, so future unlocks can use the fast agent path.
-    generate_missing_agent_wraps(&repo_root, &key);
+    generate_missing_agent_wraps(&repo_root, &common_dir, &key);
 
     let decrypted_count = checkout_encrypted_worktree_files(&repo_root);
 
@@ -3731,6 +3737,7 @@ fn cmd_verify(strict: bool, json: bool) -> Result<()> {
 
 fn cmd_rewrap() -> Result<()> {
     let repo_root = current_repo_root()?;
+    let common_dir = current_common_dir()?;
     let Some(key) = repo_key_from_session()? else {
         anyhow::bail!("repository is locked; run `git-sshripped unlock` first");
     };
@@ -3739,7 +3746,7 @@ fn cmd_rewrap() -> Result<()> {
 
     // Also generate agent-wrap files for any recipients whose keys are in
     // the SSH agent.
-    generate_missing_agent_wraps(&repo_root, &key);
+    generate_missing_agent_wraps(&repo_root, &common_dir, &key);
 
     Ok(())
 }

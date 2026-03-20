@@ -524,6 +524,13 @@ pub fn unwrap_repo_key_from_wrapped_files<S: ::std::hash::BuildHasher>(
             .with_context(|| format!("failed parsing identity file {}", identity_file.display()))?;
         if let SshIdentity::Encrypted(ref enc) = identity {
             if !interactive_identities.contains(identity_file) {
+                // On macOS, try the Keychain before giving up on this key.
+                if let Some(passphrase) = try_macos_keychain_passphrase(identity_file)
+                    && let Ok(decrypted) = enc.decrypt(passphrase)
+                {
+                    identities.push((SshIdentity::from(decrypted), identity_file.clone()));
+                    continue;
+                }
                 eprintln!(
                     "skipping passphrase-protected key {} (pass --identity to use it)",
                     identity_file.display()

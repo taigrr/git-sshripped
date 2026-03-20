@@ -220,18 +220,23 @@ pub fn install_git_filters(repo_root: &Path, bin: &str) -> Result<()> {
 
 // ---------------------------------------------------------------------------
 // Agent-wrapped key file helpers
+//
+// Agent-wrap files are stored inside the git common directory
+// (`git rev-parse --git-common-dir`) so they are:
+//   - local to the machine (never committed)
+//   - shared across linked worktrees
 // ---------------------------------------------------------------------------
 
-/// Directory that stores wrapped repo keys.
+/// Directory for agent-wrapped key files inside the git common directory.
 #[must_use]
-pub fn wrapped_dir(repo_root: &Path) -> PathBuf {
-    metadata_dir(repo_root).join("wrapped")
+pub fn agent_wrap_dir(common_dir: &Path) -> PathBuf {
+    common_dir.join("git-sshripped-agent-wrap")
 }
 
 /// Path to an agent-wrapped key file for a given fingerprint.
 #[must_use]
-pub fn agent_wrap_file(repo_root: &Path, fingerprint: &str) -> PathBuf {
-    wrapped_dir(repo_root).join(format!("{fingerprint}.agent-wrap.toml"))
+pub fn agent_wrap_file(common_dir: &Path, fingerprint: &str) -> PathBuf {
+    agent_wrap_dir(common_dir).join(format!("{fingerprint}.toml"))
 }
 
 /// Read an agent-wrapped key file, returning `None` if the file does not exist.
@@ -240,10 +245,10 @@ pub fn agent_wrap_file(repo_root: &Path, fingerprint: &str) -> PathBuf {
 ///
 /// Returns an error if the file exists but cannot be read or parsed.
 pub fn read_agent_wrap(
-    repo_root: &Path,
+    common_dir: &Path,
     fingerprint: &str,
 ) -> Result<Option<git_sshripped_ssh_agent_models::AgentWrappedKey>> {
-    let file = agent_wrap_file(repo_root, fingerprint);
+    let file = agent_wrap_file(common_dir, fingerprint);
     if !file.exists() {
         return Ok(None);
     }
@@ -261,26 +266,26 @@ pub fn read_agent_wrap(
 /// Returns an error if the directory cannot be created, the file cannot be
 /// serialized, or the file cannot be written.
 pub fn write_agent_wrap(
-    repo_root: &Path,
+    common_dir: &Path,
     wrapped: &git_sshripped_ssh_agent_models::AgentWrappedKey,
 ) -> Result<()> {
-    let dir = wrapped_dir(repo_root);
+    let dir = agent_wrap_dir(common_dir);
     fs::create_dir_all(&dir)
-        .with_context(|| format!("failed to create wrapped directory {}", dir.display()))?;
-    let file = agent_wrap_file(repo_root, &wrapped.fingerprint);
+        .with_context(|| format!("failed to create agent-wrap directory {}", dir.display()))?;
+    let file = agent_wrap_file(common_dir, &wrapped.fingerprint);
     let text = toml::to_string_pretty(wrapped).context("failed to serialize agent-wrap key")?;
     fs::write(&file, text)
         .with_context(|| format!("failed to write agent-wrap file {}", file.display()))?;
     Ok(())
 }
 
-/// List all `.agent-wrap.toml` files in the wrapped directory.
+/// List all agent-wrap `.toml` files in the agent-wrap directory.
 ///
 /// # Errors
 ///
 /// Returns an error if the directory cannot be read.
-pub fn list_agent_wrap_files(repo_root: &Path) -> Result<Vec<PathBuf>> {
-    let dir = wrapped_dir(repo_root);
+pub fn list_agent_wrap_files(common_dir: &Path) -> Result<Vec<PathBuf>> {
+    let dir = agent_wrap_dir(common_dir);
     if !dir.exists() {
         return Ok(Vec::new());
     }
@@ -289,9 +294,9 @@ pub fn list_agent_wrap_files(repo_root: &Path) -> Result<Vec<PathBuf>> {
         let entry = entry?;
         let path = entry.path();
         if path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.ends_with(".agent-wrap.toml"))
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("toml"))
         {
             files.push(path);
         }
