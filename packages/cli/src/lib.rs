@@ -1297,6 +1297,17 @@ fn checkout_encrypted_worktree_files(repo_root: &std::path::Path) -> usize {
         encrypted.len()
     );
 
+    // Touch each file so that Git's stat-cache optimisation does not skip the
+    // checkout.  When the on-disk content already matches the index blob (both
+    // encrypted), Git would otherwise conclude nothing needs updating and
+    // never invoke the smudge filter.
+    for path in &encrypted {
+        let full = repo_root.join(path);
+        if let Ok(f) = std::fs::File::open(&full) {
+            let _ = f.set_modified(std::time::SystemTime::now());
+        }
+    }
+
     let mut decrypted = 0usize;
     for batch in encrypted.chunks(GIT_CHECKOUT_BATCH_SIZE) {
         let mut cmd = std::process::Command::new("git");
