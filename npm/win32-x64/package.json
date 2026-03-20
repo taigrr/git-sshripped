@@ -1,0 +1,16 @@
+{
+  "name": "@git-sshripped/win32-x64",
+  "version": "0.1.3",
+  "description": "git-sshripped binary for Windows x64",
+  "license": "MPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BSteffaniak/git-sshripped.git"
+  },
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "preferUnplugged": true,
+  "engines": {
+    "node": ">=18"
+  }
+}

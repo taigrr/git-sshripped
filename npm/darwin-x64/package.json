@@ -1,0 +1,16 @@
+{
+  "name": "@git-sshripped/darwin-x64",
+  "version": "0.1.3",
+  "description": "git-sshripped binary for macOS x64 (Intel)",
+  "license": "MPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BSteffaniak/git-sshripped.git"
+  },
+  "os": ["darwin"],
+  "cpu": ["x64"],
+  "preferUnplugged": true,
+  "engines": {
+    "node": ">=18"
+  }
+}

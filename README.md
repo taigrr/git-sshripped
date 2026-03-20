@@ -27,6 +27,32 @@ Many alternatives fall short because they require manual encrypt/decrypt steps, 
 
 ## Quick start
 
+### Install via npm (no Rust required)
+
+```bash
+npm install git-sshripped
+```
+
+To auto-unlock encrypted files after `npm install`, add a postinstall script to your project:
+
+```json
+{
+  "scripts": {
+    "postinstall": "git-sshripped unlock --soft"
+  }
+}
+```
+
+The `--soft` flag makes unlock non-fatal so `npm install` succeeds even when the user doesn't have access to encrypted files.
+
+### Install from source
+
+```bash
+cargo install git_sshripped_cli
+```
+
+### Initialize a repository
+
 ```bash
 # in an existing Git repository
 git-sshripped init --strict --pattern "secrets/**" --recipient-key ~/.ssh/id_ed25519.pub

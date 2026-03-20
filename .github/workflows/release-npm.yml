@@ -1,0 +1,147 @@
+name: Release npm
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (skip npm publish)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            npm_pkg: darwin-arm64
+            binary: git-sshripped
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            npm_pkg: darwin-x64
+            binary: git-sshripped
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm_pkg: linux-arm64
+            binary: git-sshripped
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm_pkg: linux-x64
+            binary: git-sshripped
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            npm_pkg: linux-x64-musl
+            binary: git-sshripped
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            npm_pkg: win32-x64
+            binary: git-sshripped.exe
+
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Configure cross-compilation linker
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          echo '[target.aarch64-unknown-linux-gnu]' >> ~/.cargo/config.toml
+          echo 'linker = "aarch64-linux-gnu-gcc"' >> ~/.cargo/config.toml
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} -p git_sshripped_cli
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.npm_pkg }}
+          path: target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Place binaries into npm packages
+        run: |
+          for pkg in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-x64-musl; do
+            cp "artifacts/binary-${pkg}/git-sshripped" "npm/${pkg}/git-sshripped"
+            chmod +x "npm/${pkg}/git-sshripped"
+          done
+          cp "artifacts/binary-win32-x64/git-sshripped.exe" "npm/win32-x64/git-sshripped.exe"
+
+      - name: Verify binaries exist
+        run: |
+          ls -la npm/darwin-arm64/git-sshripped
+          ls -la npm/darwin-x64/git-sshripped
+          ls -la npm/linux-arm64/git-sshripped
+          ls -la npm/linux-x64/git-sshripped
+          ls -la npm/linux-x64-musl/git-sshripped
+          ls -la npm/win32-x64/git-sshripped.exe
+
+      - name: Publish platform packages
+        if: ${{ !inputs.dry_run }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for pkg in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-x64-musl win32-x64; do
+            echo "Publishing @git-sshripped/${pkg}..."
+            npm publish "npm/${pkg}" --access public
+          done
+
+      - name: Publish main package
+        if: ${{ !inputs.dry_run }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "Publishing git-sshripped..."
+          npm publish npm/git-sshripped --access public
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "Dry run complete. Binaries built and placed:"
+          find npm -name "git-sshripped*" -type f | sort

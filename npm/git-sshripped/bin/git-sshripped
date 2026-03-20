@@ -1,0 +1,95 @@
+#!/usr/bin/env node
+"use strict";
+
+const { platform, arch, env, argv } = process;
+const { execSync, spawnSync } = require("child_process");
+const path = require("path");
+
+function isMusl() {
+  // On non-linux, musl detection is irrelevant
+  if (platform !== "linux") return false;
+  try {
+    const stderr = execSync("ldd --version 2>&1", {
+      stdio: ["pipe", "pipe", "pipe"],
+    }).toString();
+    if (stderr.indexOf("musl") > -1) return true;
+  } catch (err) {
+    // ldd --version exits non-zero on musl systems and prints to stderr
+    if (err.stderr && err.stderr.toString().indexOf("musl") > -1) return true;
+  }
+  return false;
+}
+
+const PLATFORMS = {
+  win32: {
+    x64: "@git-sshripped/win32-x64/git-sshripped.exe",
+  },
+  darwin: {
+    x64: "@git-sshripped/darwin-x64/git-sshripped",
+    arm64: "@git-sshripped/darwin-arm64/git-sshripped",
+  },
+  linux: {
+    x64: "@git-sshripped/linux-x64/git-sshripped",
+    arm64: "@git-sshripped/linux-arm64/git-sshripped",
+  },
+  "linux-musl": {
+    x64: "@git-sshripped/linux-x64-musl/git-sshripped",
+  },
+};
+
+function getBinaryPath() {
+  // 1. Environment variable override
+  if (env.GIT_SSHRIPPED_BINARY_PATH) {
+    return env.GIT_SSHRIPPED_BINARY_PATH;
+  }
+
+  // 2. Resolve from platform-specific package
+  const platformKey =
+    platform === "linux" && isMusl() ? "linux-musl" : platform;
+  const subpath = PLATFORMS?.[platformKey]?.[arch];
+
+  if (subpath) {
+    try {
+      return require.resolve(subpath);
+    } catch {
+      // Platform package not installed, fall through
+    }
+  }
+
+  // 3. Fallback: look for git-sshripped in PATH
+  try {
+    const which = platform === "win32" ? "where" : "which";
+    const resolved = execSync(`${which} git-sshripped`, {
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+      .toString()
+      .trim()
+      .split("\n")[0];
+    if (resolved) return resolved;
+  } catch {
+    // Not found in PATH
+  }
+
+  // 4. Give up with a helpful error
+  console.error(
+    `Error: No prebuilt git-sshripped binary available for ${platform}/${arch}.
+
+To fix this, either:
+  - Install git-sshripped via cargo: cargo install git_sshripped_cli
+  - Set GIT_SSHRIPPED_BINARY_PATH to point to a git-sshripped binary
+  - File an issue: https://github.com/BSteffaniak/git-sshripped/issues`
+  );
+  process.exit(1);
+}
+
+const binPath = getBinaryPath();
+const result = spawnSync(binPath, argv.slice(2), {
+  shell: false,
+  stdio: "inherit",
+});
+
+if (result.error) {
+  throw result.error;
+}
+
+process.exitCode = result.status;
