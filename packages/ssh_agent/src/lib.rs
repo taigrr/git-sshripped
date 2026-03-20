@@ -6,11 +6,11 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD as BASE64URL};
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
 use hkdf::Hkdf;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use ssh_agent_client_rs::Client;
 use ssh_key::public::KeyData;
 
@@ -26,10 +26,27 @@ const HKDF_INFO: &[u8] = b"git-sshripped-agent-wrap-v1";
 /// An SSH key available in the running SSH agent.
 #[derive(Debug, Clone)]
 pub struct AgentKey {
-    /// SSH fingerprint string, e.g. `SHA256:abc123...`.
+    /// Fingerprint in git-sshripped's format: `base64url_no_pad(SHA256(key_type + ":" + key_data))`.
     pub fingerprint: String,
     /// The parsed public key (used to request signatures from the agent).
     pub public_key: ssh_key::PublicKey,
+}
+
+/// Compute a fingerprint in the same format that git-sshripped uses for
+/// recipient files and wrapped key filenames.
+///
+/// The format is `base64url_no_pad(SHA256("key_type:base64_key_data"))`,
+/// e.g. `nUy4xy4qXy07aLaplZjYi1K3ybk5-0XS8PWNkGb8vxk`.
+fn git_sshripped_fingerprint(openssh_line: &str) -> Option<String> {
+    let mut parts = openssh_line.split_whitespace();
+    let key_type = parts.next()?;
+    let key_body = parts.next()?;
+
+    let mut hasher = Sha256::new();
+    hasher.update(key_type.as_bytes());
+    hasher.update([b':']);
+    hasher.update(key_body.as_bytes());
+    Some(BASE64URL.encode(hasher.finalize()))
 }
 
 /// Connect to the SSH agent and list all available Ed25519 keys.
@@ -63,8 +80,12 @@ pub fn list_agent_ed25519_keys() -> Result<Vec<AgentKey>> {
         if !matches!(pubkey.key_data(), KeyData::Ed25519(_)) {
             continue;
         }
+        let openssh_line = pubkey.to_openssh().unwrap_or_default();
+        let Some(fingerprint) = git_sshripped_fingerprint(&openssh_line) else {
+            continue;
+        };
         keys.push(AgentKey {
-            fingerprint: pubkey.fingerprint(ssh_key::HashAlg::Sha256).to_string(),
+            fingerprint,
             public_key: pubkey.clone(),
         });
     }
