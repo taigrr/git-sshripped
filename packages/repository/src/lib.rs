@@ -156,24 +156,43 @@ pub fn install_gitattributes(repo_root: &Path, patterns: &[String]) -> Result<()
     Ok(())
 }
 
+/// Shell-quote a string so it survives interpretation by the shell.
+///
+/// If the string contains no characters that need quoting it is returned as-is.
+/// Otherwise it is wrapped in single quotes with any embedded single quotes
+/// escaped using the `'\''` idiom.
+fn shell_quote(s: &str) -> String {
+    if !s.contains(|c: char| {
+        c.is_whitespace()
+            || matches!(
+                c,
+                '\'' | '"' | '\\' | '(' | ')' | '&' | ';' | '|' | '<' | '>' | '`' | '$' | '!' | '#'
+            )
+    }) {
+        return s.to_string();
+    }
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 /// Install Git filter and diff configuration via `git config --local`.
 ///
 /// # Errors
 ///
 /// Returns an error if any `git config` command fails.
 pub fn install_git_filters(repo_root: &Path, bin: &str) -> Result<()> {
+    let quoted = shell_quote(bin);
     let pairs = [
         (
             "filter.git-sshripped.process".to_string(),
-            format!("{bin} filter-process"),
+            format!("{quoted} filter-process"),
         ),
         (
             "filter.git-sshripped.clean".to_string(),
-            format!("{bin} clean --path %f"),
+            format!("{quoted} clean --path %f"),
         ),
         (
             "filter.git-sshripped.smudge".to_string(),
-            format!("{bin} smudge --path %f"),
+            format!("{quoted} smudge --path %f"),
         ),
         (
             "filter.git-sshripped.required".to_string(),
@@ -181,7 +200,7 @@ pub fn install_git_filters(repo_root: &Path, bin: &str) -> Result<()> {
         ),
         (
             "diff.git-sshripped.textconv".to_string(),
-            format!("{bin} diff --path %f"),
+            format!("{quoted} diff --path %f"),
         ),
     ];
 
