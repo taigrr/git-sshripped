@@ -47,10 +47,13 @@ impl age::Callbacks for TerminalCallbacks {
 /// Maximum number of passphrase attempts for encrypted SSH keys.
 const MAX_PASSPHRASE_ATTEMPTS: u32 = 3;
 
-/// Decrypt a passphrase-protected SSH key interactively with retries.
+/// Decrypt a passphrase-protected SSH key.
 ///
-/// Prompts for the passphrase up to [`MAX_PASSPHRASE_ATTEMPTS`] times.
-/// Checks the `GSC_SSH_KEY_PASSPHRASE` environment variable first.
+/// Resolution order for the passphrase:
+/// 1. macOS Keychain (`security find-generic-password`)
+/// 2. `GSC_SSH_KEY_PASSPHRASE` environment variable
+/// 3. Interactive terminal prompt via `rpassword` (up to
+///    [`MAX_PASSPHRASE_ATTEMPTS`] attempts)
 ///
 /// # Errors
 ///
@@ -60,6 +63,14 @@ fn decrypt_encrypted_key(
     enc: &age::ssh::EncryptedKey,
     path: &std::path::Path,
 ) -> Result<SshIdentity> {
+    // 1. Try macOS Keychain (silent, no prompt).
+    if let Some(passphrase) = try_macos_keychain_passphrase(path)
+        && let Ok(decrypted) = enc.decrypt(passphrase)
+    {
+        return Ok(SshIdentity::from(decrypted));
+    }
+
+    // 2. Try env var / interactive prompt with retries.
     for attempt in 1..=MAX_PASSPHRASE_ATTEMPTS {
         let passphrase = if let Ok(p) = std::env::var("GSC_SSH_KEY_PASSPHRASE")
             && !p.is_empty()
@@ -86,6 +97,43 @@ fn decrypt_encrypted_key(
         }
     }
     unreachable!()
+}
+
+/// Try to retrieve the SSH key passphrase from the macOS login Keychain.
+///
+/// Apple's `ssh-add --apple-use-keychain` stores passphrases with the
+/// service name `"SSH: /path/to/key"`.  This function queries that entry
+/// via the `security` CLI tool and returns the passphrase if found.
+///
+/// Returns `None` on non-macOS platforms, when the Keychain entry does not
+/// exist, or on any error.
+fn try_macos_keychain_passphrase(key_path: &std::path::Path) -> Option<SecretString> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+
+    let user = std::env::var("USER").ok()?;
+    let service = format!("SSH: {}", key_path.display());
+
+    let output = Command::new("security")
+        .args(["find-generic-password", "-a", &user, "-s", &service, "-w"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let passphrase = String::from_utf8(output.stdout).ok()?;
+    let trimmed = passphrase.trim_end_matches('\n');
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    Some(SecretString::from(trimmed.to_string()))
 }
 
 #[must_use]
