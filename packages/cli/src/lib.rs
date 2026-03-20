@@ -1637,6 +1637,20 @@ fn cmd_add_github_user(
 ) -> Result<()> {
     let effective_key = match (key, key_file) {
         (Some(k), _) => Some(k),
+        (_, Some(source))
+            if {
+                let lower = source.to_lowercase();
+                lower.starts_with("http://") || lower.starts_with("https://")
+            } =>
+        {
+            let contents = reqwest::blocking::get(&source)
+                .with_context(|| format!("failed to fetch key from '{source}'"))?
+                .error_for_status()
+                .with_context(|| format!("HTTP error fetching key from '{source}'"))?
+                .text()
+                .with_context(|| format!("failed to read response body from '{source}'"))?;
+            Some(contents.trim().to_string())
+        }
         (_, Some(path)) => {
             let contents = fs::read_to_string(&path)
                 .with_context(|| format!("failed to read key file '{path}'"))?;
