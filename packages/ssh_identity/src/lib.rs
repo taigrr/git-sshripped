@@ -3,6 +3,7 @@
 #![allow(clippy::multiple_crate_versions)]
 
 use std::collections::HashSet;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -512,6 +513,7 @@ pub fn unwrap_repo_key_from_wrapped_files<S: ::std::hash::BuildHasher>(
     interactive_identities: &HashSet<PathBuf, S>,
 ) -> Result<Option<(Vec<u8>, IdentityDescriptor)>> {
     let mut identities: Vec<(SshIdentity, PathBuf)> = Vec::new();
+    let mut skipped_encrypted: Vec<(age::ssh::EncryptedKey, PathBuf)> = Vec::new();
 
     for identity_file in identity_files {
         if !identity_file.exists() {
@@ -524,21 +526,18 @@ pub fn unwrap_repo_key_from_wrapped_files<S: ::std::hash::BuildHasher>(
             .with_context(|| format!("failed parsing identity file {}", identity_file.display()))?;
         if let SshIdentity::Encrypted(ref enc) = identity {
             if !interactive_identities.contains(identity_file) {
-                // On macOS, try the Keychain before giving up on this key.
+                // On macOS, try the Keychain before stashing for later.
                 if let Some(passphrase) = try_macos_keychain_passphrase(identity_file)
                     && let Ok(decrypted) = enc.decrypt(passphrase)
                 {
                     identities.push((SshIdentity::from(decrypted), identity_file.clone()));
                     continue;
                 }
-                eprintln!(
-                    "skipping passphrase-protected key {} (pass --identity to use it)",
-                    identity_file.display()
-                );
+                // Stash for interactive fallback instead of skipping outright.
+                skipped_encrypted.push((enc.clone(), identity_file.clone()));
                 continue;
             }
-            // Decrypt the key upfront so we only prompt for the passphrase
-            // once, rather than once per wrapped file.
+            // --identity was passed: decrypt directly (prompts if needed).
             let decrypted = decrypt_encrypted_key(enc, identity_file)?;
             identities.push((decrypted, identity_file.clone()));
         } else {
@@ -546,11 +545,30 @@ pub fn unwrap_repo_key_from_wrapped_files<S: ::std::hash::BuildHasher>(
         }
     }
 
+    // First pass: try all passwordless identities (unencrypted + Keychain-decrypted).
+    if let Some(result) = try_decrypt_wrapped_files(wrapped_files, &identities)? {
+        return Ok(Some(result));
+    }
+
+    // Second pass: if we have encrypted keys that were skipped, offer
+    // interactive passphrase entry (only when stdin is a TTY).
+    if !skipped_encrypted.is_empty() && std::io::stdin().is_terminal() {
+        return try_interactive_encrypted_key(wrapped_files, &skipped_encrypted);
+    }
+
+    Ok(None)
+}
+
+/// Try to decrypt any of the wrapped key files using the given identities.
+fn try_decrypt_wrapped_files(
+    wrapped_files: &[PathBuf],
+    identities: &[(SshIdentity, PathBuf)],
+) -> Result<Option<(Vec<u8>, IdentityDescriptor)>> {
     for wrapped in wrapped_files {
         let wrapped_bytes = std::fs::read(wrapped)
             .with_context(|| format!("failed reading wrapped key {}", wrapped.display()))?;
 
-        for (identity, path) in &identities {
+        for (identity, path) in identities {
             let decryptor = Decryptor::new_buffered(std::io::Cursor::new(&wrapped_bytes))
                 .with_context(|| format!("invalid wrapped key format {}", wrapped.display()))?;
             let decrypt_identity = identity.clone().with_callbacks(TerminalCallbacks);
@@ -573,8 +591,54 @@ pub fn unwrap_repo_key_from_wrapped_files<S: ::std::hash::BuildHasher>(
             )));
         }
     }
-
     Ok(None)
+}
+
+/// Prompt the user to select an encrypted key and try to decrypt with it.
+fn try_interactive_encrypted_key(
+    wrapped_files: &[PathBuf],
+    skipped: &[(age::ssh::EncryptedKey, PathBuf)],
+) -> Result<Option<(Vec<u8>, IdentityDescriptor)>> {
+    let selected = if skipped.len() == 1 {
+        eprintln!("Trying encrypted key {}...", skipped[0].1.display());
+        Some(0)
+    } else {
+        prompt_key_selection(skipped)
+    };
+
+    let Some(idx) = selected else {
+        return Ok(None);
+    };
+
+    let (enc, path) = &skipped[idx];
+    let decrypted = decrypt_encrypted_key(enc, path)?;
+    let identities = vec![(decrypted, path.clone())];
+    try_decrypt_wrapped_files(wrapped_files, &identities)
+}
+
+/// Display a selection menu for encrypted keys and return the chosen index.
+fn prompt_key_selection(keys: &[(age::ssh::EncryptedKey, PathBuf)]) -> Option<usize> {
+    eprintln!("No passwordless unlock method available.");
+    eprintln!("The following encrypted keys were found:");
+    eprintln!();
+    for (i, (_, path)) in keys.iter().enumerate() {
+        eprintln!("  {}) {}", i + 1, path.display());
+    }
+    eprintln!();
+    eprint!("Enter the number of the key to try (or 'q' to cancel): ");
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).ok()?;
+    let trimmed = input.trim();
+    if trimmed.eq_ignore_ascii_case("q") {
+        return None;
+    }
+    let num: usize = trimmed.parse().ok()?;
+    if num >= 1 && num <= keys.len() {
+        Some(num - 1)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
