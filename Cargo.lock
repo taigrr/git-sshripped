@@ -119,9 +119,9 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "arc-swap"
-version = "1.8.2"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9f3647c145568cec02c42054e07bdf9a5a698e15b466fb2341bfc393cd24aa5"
+checksum = "a07d1f37ff60921c83bdfc7407723bdefe89b44b98a9b772f225c8f9d67141a6"
 dependencies = [
  "rustversion",
 ]
@@ -805,7 +805,7 @@ dependencies = [
 
 [[package]]
 name = "git_sshripped"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "git_sshripped_cli_models",
  "git_sshripped_encryption",
@@ -824,7 +824,7 @@ dependencies = [
 
 [[package]]
 name = "git_sshripped_cli"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -853,7 +853,7 @@ dependencies = [
 
 [[package]]
 name = "git_sshripped_cli_models"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "git_sshripped_encryption_models",
  "serde",
@@ -861,7 +861,7 @@ dependencies = [
 
 [[package]]
 name = "git_sshripped_encryption"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "aes-siv",
  "anyhow",
@@ -874,7 +874,7 @@ dependencies = [
 
 [[package]]
 name = "git_sshripped_encryption_models"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -882,7 +882,7 @@ dependencies = [
 
 [[package]]
 name = "git_sshripped_filter"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "git_sshripped_encryption",
@@ -892,14 +892,14 @@ dependencies = [
 
 [[package]]
 name = "git_sshripped_filter_models"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "git_sshripped_recipient"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "age",
  "anyhow",
@@ -913,14 +913,14 @@ dependencies = [
 
 [[package]]
 name = "git_sshripped_recipient_models"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "git_sshripped_repository"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "git_sshripped_repository_models",
@@ -930,7 +930,7 @@ dependencies = [
 
 [[package]]
 name = "git_sshripped_repository_models"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "git_sshripped_encryption_models",
  "serde",
@@ -938,7 +938,7 @@ dependencies = [
 
 [[package]]
 name = "git_sshripped_ssh_agent"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -953,14 +953,14 @@ dependencies = [
 
 [[package]]
 name = "git_sshripped_ssh_agent_models"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "git_sshripped_ssh_identity"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "age",
  "anyhow",
@@ -976,14 +976,14 @@ dependencies = [
 
 [[package]]
 name = "git_sshripped_ssh_identity_models"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "git_sshripped_worktree"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -993,21 +993,21 @@ dependencies = [
 
 [[package]]
 name = "git_sshripped_worktree_models"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "git_sshript"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "git_sshripped_cli",
 ]
 
 [[package]]
 name = "git_sshrypt"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "git_sshripped_cli",
 ]
@@ -1393,9 +1393,9 @@ checksum = "d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2"
 
 [[package]]
 name = "iri-string"
-version = "0.7.10"
+version = "0.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c91338f0783edbd6195decb37bae672fd3b165faffb89bf7b9e6942f8b1a731a"
+checksum = "d8e7418f59cc01c88316161279a7f665217ae316b388e58a0d10e29f54f1e5eb"
 dependencies = [
  "memchr",
  "serde",
@@ -1403,9 +1403,9 @@ dependencies = [
 
 [[package]]
 name = "itoa"
-version = "1.0.17"
+version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
+checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "js-sys"
@@ -3200,18 +3200,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.42"
+version = "0.8.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2578b716f8a7a858b7f02d5bd870c14bf4ddbbcf3a4c05414ba6503640505e3"
+checksum = "efbb2a062be311f2ba113ce66f697a4dc589f85e78a4aea276200804cea0ed87"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.42"
+version = "0.8.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e6cc098ea4d3bd6246687de65af3f920c430e236bee1e3bf2e441463f08a02f"
+checksum = "0e8bc7269b54418e7aeeef514aa68f8690b8c0489a06b0136e5f57c4c5ccab89"
 dependencies = [
  "proc-macro2",
  "quote",
