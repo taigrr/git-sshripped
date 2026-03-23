@@ -3613,10 +3613,26 @@ fn protected_tracked_files(repo_root: &std::path::Path) -> Result<Vec<String>> {
 
     // Scope git ls-files to only the gitattributes patterns so we avoid listing the
     // entire repository.
+    //
+    // .gitattributes patterns without a `/` match by **basename** in any
+    // directory (same rule as .gitignore), but git-ls-files pathspecs treat
+    // them as relative to the repo root.  Convert bare patterns to `**/pattern`
+    // so ls-files matches files in subdirectories too.
+    let pathspecs: Vec<String> = positive_patterns
+        .iter()
+        .map(|p| {
+            if p.contains('/') {
+                (*p).to_string()
+            } else {
+                format!("**/{p}")
+            }
+        })
+        .collect();
+
     let mut cmd = std::process::Command::new("git");
     cmd.current_dir(repo_root).args(["ls-files", "-z", "--"]);
-    for pattern in &positive_patterns {
-        cmd.arg(pattern);
+    for pathspec in &pathspecs {
+        cmd.arg(pathspec);
     }
     let ls_output = cmd.output().context("failed to run git ls-files")?;
     if !ls_output.status.success() {
