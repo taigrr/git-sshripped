@@ -66,9 +66,15 @@ echo "Bumping version: $CURRENT → $NEW_VERSION"
 echo ""
 
 # --- Cargo.toml ---
-# Replace all occurrences of the old version string in the root Cargo.toml.
-# This covers workspace.package.version and all workspace.dependencies entries.
-sed -i.bak "s/\"$CURRENT\"/\"$NEW_VERSION\"/g" "$REPO_ROOT/Cargo.toml"
+# Update workspace.package.version and workspace.dependencies entries for
+# internal crates only.  Internal crate entries always contain "path =" while
+# external deps from crates.io never do, so we use that to distinguish them
+# and avoid accidentally bumping an unrelated dependency whose version string
+# happens to match the current project version.
+sed -i.bak \
+  -e "s/^version = \"$CURRENT\"/version = \"$NEW_VERSION\"/" \
+  -e "/path = /s/\"$CURRENT\"/\"$NEW_VERSION\"/g" \
+  "$REPO_ROOT/Cargo.toml"
 rm -f "$REPO_ROOT/Cargo.toml.bak"
 echo "  updated Cargo.toml"
 
