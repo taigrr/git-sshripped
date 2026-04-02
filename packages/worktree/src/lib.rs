@@ -39,6 +39,19 @@ pub fn git_common_dir(cwd: &Path) -> Result<PathBuf> {
     git_rev_parse(cwd, "--git-common-dir")
 }
 
+/// Resolve the Git directory for the current working directory.
+///
+/// For the main worktree this returns `.git`; for a linked worktree it
+/// returns the worktree-specific Git directory (e.g.
+/// `<main>/.git/worktrees/<name>`).
+///
+/// # Errors
+///
+/// Returns an error if `git rev-parse --git-dir` fails.
+pub fn git_dir(cwd: &Path) -> Result<PathBuf> {
+    git_rev_parse(cwd, "--git-dir")
+}
+
 /// Resolve the working-tree root for the current working directory.
 ///
 /// # Errors
@@ -46,6 +59,39 @@ pub fn git_common_dir(cwd: &Path) -> Result<PathBuf> {
 /// Returns an error if `git rev-parse --show-toplevel` fails.
 pub fn git_toplevel(cwd: &Path) -> Result<PathBuf> {
     git_rev_parse(cwd, "--show-toplevel")
+}
+
+/// Returns `true` when the current working directory is inside a linked
+/// (non-main) Git worktree.
+///
+/// Detection works by comparing the resolved `--git-dir` (worktree-specific)
+/// against `--git-common-dir` (shared).  When they differ the worktree is a
+/// linked one.
+///
+/// # Errors
+///
+/// Returns an error if the underlying `git rev-parse` calls fail.
+pub fn is_linked_worktree(cwd: &Path) -> Result<bool> {
+    let git_dir_raw = git_dir(cwd)?;
+    let common_dir_raw = git_common_dir(cwd)?;
+
+    // Both flags may return relative paths – resolve them to absolute.
+    let abs_git = if git_dir_raw.is_absolute() {
+        git_dir_raw
+    } else {
+        cwd.join(git_dir_raw)
+    };
+    let abs_common = if common_dir_raw.is_absolute() {
+        common_dir_raw
+    } else {
+        cwd.join(common_dir_raw)
+    };
+
+    // Canonicalize to collapse symlinks and `..` components.
+    let canon_git = fs::canonicalize(&abs_git).unwrap_or(abs_git);
+    let canon_common = fs::canonicalize(&abs_common).unwrap_or(abs_common);
+
+    Ok(canon_git != canon_common)
 }
 
 #[must_use]

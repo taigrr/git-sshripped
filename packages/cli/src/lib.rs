@@ -40,7 +40,8 @@ use git_sshripped_ssh_identity::{
 };
 use git_sshripped_ssh_identity_models::IdentityDescriptor;
 use git_sshripped_worktree::{
-    clear_unlock_session, git_common_dir, git_toplevel, read_unlock_session, write_unlock_session,
+    clear_unlock_session, git_common_dir, git_toplevel, is_linked_worktree, read_unlock_session,
+    write_unlock_session,
 };
 use git_sshripped_worktree_models::UnlockSession;
 use rand::RngCore;
@@ -495,6 +496,10 @@ fn current_bin_path() -> String {
         .unwrap_or_else(|| "git-sshripped".to_string())
 }
 
+fn current_is_linked_worktree(repo_root: &std::path::Path) -> bool {
+    is_linked_worktree(repo_root).unwrap_or(false)
+}
+
 fn wrapped_key_files(repo_root: &std::path::Path) -> Result<Vec<PathBuf>> {
     let dir = wrapped_store_dir(repo_root);
     if !dir.exists() {
@@ -596,7 +601,7 @@ fn resolve_agent_helper(repo_root: &std::path::Path) -> Result<Option<(PathBuf, 
         }
     }
 
-    if let Some(cfg_value) = git_local_config(repo_root, "git-sshripped.agentHelper")? {
+    if let Some(cfg_value) = git_effective_config(repo_root, "git-sshripped.agentHelper")? {
         let candidate = PathBuf::from(cfg_value);
         if is_executable(&candidate) {
             return Ok(Some((candidate, "git-config".to_string())));
@@ -837,7 +842,7 @@ fn collect_doctor_failures(
         );
     }
 
-    let process_cfg = git_local_config(repo_root, "filter.git-sshripped.process")?;
+    let process_cfg = git_effective_config(repo_root, "filter.git-sshripped.process")?;
     if !process_cfg
         .as_ref()
         .is_some_and(|value| value.contains("filter-process"))
@@ -845,7 +850,7 @@ fn collect_doctor_failures(
         failures.push("filter.git-sshripped.process is missing or invalid".to_string());
     }
 
-    let required_cfg = git_local_config(repo_root, "filter.git-sshripped.required")?;
+    let required_cfg = git_effective_config(repo_root, "filter.git-sshripped.required")?;
     if required_cfg.as_deref() != Some("true") {
         failures.push("filter.git-sshripped.required should be true".to_string());
     }
@@ -1031,7 +1036,11 @@ fn cmd_init(
 
     write_manifest(&repo_root, &manifest)?;
     install_gitattributes(&repo_root, patterns)?;
-    install_git_filters(&repo_root, &current_bin_path())?;
+    install_git_filters(
+        &repo_root,
+        &current_bin_path(),
+        current_is_linked_worktree(&repo_root),
+    )?;
 
     let mut added_recipients = Vec::new();
 
@@ -1325,7 +1334,11 @@ fn cmd_unlock(
     if key_hex.is_none()
         && let Ok(Some(_)) = repo_key_from_session_in(&common_dir, Some(&manifest))
     {
-        install_git_filters(&repo_root, &current_bin_path())?;
+        install_git_filters(
+            &repo_root,
+            &current_bin_path(),
+            current_is_linked_worktree(&repo_root),
+        )?;
         let decrypted_count = checkout_encrypted_worktree_files(&repo_root);
         if decrypted_count > 0 {
             println!("decrypted {decrypted_count} protected files in working tree");
@@ -1363,7 +1376,11 @@ fn cmd_unlock(
     }
 
     write_unlock_session(&common_dir, &key, &key_source, Some(key_id))?;
-    install_git_filters(&repo_root, &current_bin_path())?;
+    install_git_filters(
+        &repo_root,
+        &current_bin_path(),
+        current_is_linked_worktree(&repo_root),
+    )?;
 
     // Opportunistically generate agent-wrap files for recipients whose keys
     // are in the SSH agent, so future unlocks can use the fast agent path.
@@ -2983,7 +3000,11 @@ fn cmd_access_audit(identities: Vec<String>, json: bool) -> Result<()> {
 fn cmd_install() -> Result<()> {
     let repo_root = current_repo_root()?;
     let _manifest = read_manifest(&repo_root)?;
-    install_git_filters(&repo_root, &current_bin_path())?;
+    install_git_filters(
+        &repo_root,
+        &current_bin_path(),
+        current_is_linked_worktree(&repo_root),
+    )?;
     println!("install: refreshed git filter configuration");
     Ok(())
 }
@@ -3359,7 +3380,11 @@ fn cmd_migrate_from_git_crypt(opts: &MigrateOptions) -> Result<()> {
             .with_context(|| format!("failed to rewrite {}", path.display()))?;
         write_manifest(&repo_root, &manifest_after)?;
         install_gitattributes(&repo_root, &plan.patterns)?;
-        install_git_filters(&repo_root, &current_bin_path())?;
+        install_git_filters(
+            &repo_root,
+            &current_bin_path(),
+            current_is_linked_worktree(&repo_root),
+        )?;
     }
 
     let reencrypted_files = if opts.reencrypt {
@@ -3730,8 +3755,8 @@ fn cmd_verify(strict: bool, json: bool) -> Result<()> {
     }
 
     if strict {
-        let process_cfg = git_local_config(&repo_root, "filter.git-sshripped.process")?;
-        let required_cfg = git_local_config(&repo_root, "filter.git-sshripped.required")?;
+        let process_cfg = git_effective_config(&repo_root, "filter.git-sshripped.process")?;
+        let required_cfg = git_effective_config(&repo_root, "filter.git-sshripped.required")?;
         if process_cfg.is_none() || required_cfg.as_deref() != Some("true") {
             anyhow::bail!(
                 "strict verify failed: filter.git-sshripped.process and required=true must be configured"
@@ -3939,10 +3964,14 @@ fn repo_key_from_session() -> Result<Option<Vec<u8>>> {
     repo_key_from_session_in(&common_dir, Some(&manifest))
 }
 
-fn git_local_config(repo_root: &std::path::Path, key: &str) -> Result<Option<String>> {
+/// Read a git config value using the effective (merged) config, which
+/// respects the full precedence chain: worktree > local > global > system.
+/// This is needed because filter entries may live in the worktree-specific
+/// config layer when `extensions.worktreeConfig` is enabled.
+fn git_effective_config(repo_root: &std::path::Path, key: &str) -> Result<Option<String>> {
     let output = std::process::Command::new("git")
         .current_dir(repo_root)
-        .args(["config", "--local", "--get", key])
+        .args(["config", "--get", key])
         .output()
         .with_context(|| format!("failed to run git config --get {key}"))?;
 
@@ -3962,7 +3991,7 @@ fn doctor_check_filters(
     json: bool,
     failures: &mut Vec<String>,
 ) -> Result<()> {
-    let process_cfg = git_local_config(repo_root, "filter.git-sshripped.process")?;
+    let process_cfg = git_effective_config(repo_root, "filter.git-sshripped.process")?;
     if process_cfg
         .as_ref()
         .is_some_and(|value| value.contains("filter-process"))
@@ -3977,7 +4006,7 @@ fn doctor_check_filters(
         failures.push("filter.git-sshripped.process is missing or invalid".to_string());
     }
 
-    let required_cfg = git_local_config(repo_root, "filter.git-sshripped.required")?;
+    let required_cfg = git_effective_config(repo_root, "filter.git-sshripped.required")?;
     if required_cfg.as_deref() == Some("true") {
         if !json {
             println!("check filter.required: PASS");

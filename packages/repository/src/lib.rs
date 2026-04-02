@@ -174,12 +174,42 @@ fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
-/// Install Git filter and diff configuration via `git config --local`.
+/// Install Git filter and diff configuration.
+///
+/// When `linked_worktree` is `true` the values are written to the
+/// worktree-specific config layer (`git config --worktree`) so that a linked
+/// worktree's binary path does not overwrite the shared repository config.
+/// The `extensions.worktreeConfig` extension is enabled automatically when
+/// needed.
+///
+/// For the main worktree (or when `linked_worktree` is `false`) the values
+/// are written to the shared local config (`git config --local`) which acts
+/// as the default fallback for all worktrees.
 ///
 /// # Errors
 ///
 /// Returns an error if any `git config` command fails.
-pub fn install_git_filters(repo_root: &Path, bin: &str) -> Result<()> {
+pub fn install_git_filters(repo_root: &Path, bin: &str, linked_worktree: bool) -> Result<()> {
+    // When writing to a linked worktree, ensure the worktreeConfig extension
+    // is enabled (idempotent) so that `--worktree` scope is honoured by git.
+    if linked_worktree {
+        let ext_status = Command::new("git")
+            .args(["config", "--local", "extensions.worktreeConfig", "true"])
+            .current_dir(repo_root)
+            .status()
+            .context("failed to enable extensions.worktreeConfig")?;
+
+        if !ext_status.success() {
+            anyhow::bail!("git config failed for key 'extensions.worktreeConfig'");
+        }
+    }
+
+    let scope = if linked_worktree {
+        "--worktree"
+    } else {
+        "--local"
+    };
+
     let quoted = shell_quote(bin);
     let pairs = [
         (
@@ -206,7 +236,7 @@ pub fn install_git_filters(repo_root: &Path, bin: &str) -> Result<()> {
 
     for (key, value) in &pairs {
         let status = Command::new("git")
-            .args(["config", "--local", key.as_str(), value.as_str()])
+            .args(["config", scope, key.as_str(), value.as_str()])
             .current_dir(repo_root)
             .status()
             .with_context(|| format!("failed to set git config {key}"))?;
