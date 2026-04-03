@@ -1,0 +1,4 @@
+name: "git-sshripped CodeQL config"
+
+queries:
+  - uses: security-extended
