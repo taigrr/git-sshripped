@@ -82,7 +82,7 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }} -p git_sshripped_cli
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.npm_pkg }}
           path: target/${{ matrix.target }}/release/${{ matrix.binary }}
