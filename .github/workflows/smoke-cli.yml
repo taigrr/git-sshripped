@@ -1,0 +1,51 @@
+name: CLI Smoke
+
+on:
+  push:
+    branches: ["master"]
+    paths:
+      - ".github/workflows/smoke-cli.yml"
+      - "packages/**"
+      - "**/*.toml"
+      - "**/Cargo.lock"
+      - "!**/*.md"
+      - "!**/LICENSE"
+      - "!**/.gitignore"
+  pull_request:
+    branches: ["master"]
+    paths:
+      - ".github/workflows/smoke-cli.yml"
+      - "packages/**"
+      - "**/*.toml"
+      - "**/Cargo.lock"
+      - "!**/*.md"
+      - "!**/LICENSE"
+      - "!**/.gitignore"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  smoke:
+    name: smoke_ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+
+      - name: Run smoke test
+        run: cargo test -p git_sshripped_cli --test smoke_ci
