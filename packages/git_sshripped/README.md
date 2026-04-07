@@ -25,6 +25,8 @@ With the default `all` feature enabled, every domain crate is re-exported.
 | `recipient-models` | `git_sshripped_recipient_models` |
 | `repository` | `git_sshripped_repository` |
 | `repository-models` | `git_sshripped_repository_models` |
+| `ssh-agent` | `git_sshripped_ssh_agent` |
+| `ssh-agent-models` | `git_sshripped_ssh_agent_models` |
 | `ssh-identity` | `git_sshripped_ssh_identity` |
 | `ssh-identity-models` | `git_sshripped_ssh_identity_models` |
 | `worktree` | `git_sshripped_worktree` |

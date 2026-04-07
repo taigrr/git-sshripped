@@ -816,6 +816,8 @@ dependencies = [
  "git_sshripped_recipient_models",
  "git_sshripped_repository",
  "git_sshripped_repository_models",
+ "git_sshripped_ssh_agent",
+ "git_sshripped_ssh_agent_models",
  "git_sshripped_ssh_identity",
  "git_sshripped_ssh_identity_models",
  "git_sshripped_worktree",

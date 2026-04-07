@@ -20,6 +20,8 @@ git_sshripped_recipient = { workspace = true, optional = true }
 git_sshripped_recipient_models = { workspace = true, optional = true }
 git_sshripped_repository = { workspace = true, optional = true }
 git_sshripped_repository_models = { workspace = true, optional = true }
+git_sshripped_ssh_agent = { workspace = true, optional = true }
+git_sshripped_ssh_agent_models = { workspace = true, optional = true }
 git_sshripped_ssh_identity = { workspace = true, optional = true }
 git_sshripped_ssh_identity_models = { workspace = true, optional = true }
 git_sshripped_worktree = { workspace = true, optional = true }
@@ -37,6 +39,8 @@ all = [
   "recipient-models",
   "repository",
   "repository-models",
+  "ssh-agent",
+  "ssh-agent-models",
   "ssh-identity",
   "ssh-identity-models",
   "worktree",
@@ -51,6 +55,8 @@ recipient = ["dep:git_sshripped_recipient"]
 recipient-models = ["dep:git_sshripped_recipient_models"]
 repository = ["dep:git_sshripped_repository"]
 repository-models = ["dep:git_sshripped_repository_models"]
+ssh-agent = ["dep:git_sshripped_ssh_agent"]
+ssh-agent-models = ["dep:git_sshripped_ssh_agent_models"]
 ssh-identity = ["dep:git_sshripped_ssh_identity"]
 ssh-identity-models = ["dep:git_sshripped_ssh_identity_models"]
 worktree = ["dep:git_sshripped_worktree"]
@@ -65,6 +71,8 @@ fail-on-warnings = [
   "git_sshripped_recipient_models/fail-on-warnings",
   "git_sshripped_repository/fail-on-warnings",
   "git_sshripped_repository_models/fail-on-warnings",
+  "git_sshripped_ssh_agent/fail-on-warnings",
+  "git_sshripped_ssh_agent_models/fail-on-warnings",
   "git_sshripped_ssh_identity/fail-on-warnings",
   "git_sshripped_ssh_identity_models/fail-on-warnings",
   "git_sshripped_worktree/fail-on-warnings",

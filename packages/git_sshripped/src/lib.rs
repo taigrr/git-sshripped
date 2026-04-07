@@ -20,6 +20,10 @@ pub use git_sshripped_recipient_models as recipient_models;
 pub use git_sshripped_repository as repository;
 #[cfg(feature = "repository-models")]
 pub use git_sshripped_repository_models as repository_models;
+#[cfg(feature = "ssh-agent")]
+pub use git_sshripped_ssh_agent as ssh_agent;
+#[cfg(feature = "ssh-agent-models")]
+pub use git_sshripped_ssh_agent_models as ssh_agent_models;
 #[cfg(feature = "ssh-identity")]
 pub use git_sshripped_ssh_identity as ssh_identity;
 #[cfg(feature = "ssh-identity-models")]
